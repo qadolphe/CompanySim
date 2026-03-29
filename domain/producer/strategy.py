@@ -1,0 +1,167 @@
+"""
+Strategy engine — the decision-making heuristics for the producer.
+
+Contains the production reallocation and R&D allocation logic,
+separated from the producer agent to keep it testable.
+"""
+
+from __future__ import annotations
+
+from domain.market.models import SalesRecord
+from simulation.config import (
+    CAPACITY_SHIFT_MAX_UNITS,
+    CAPACITY_SHIFT_PCT,
+    RETOOLING_COST_PER_UNIT,
+    R_AND_D_BUDGET_PCT,
+    R_AND_D_EV_FLOOR_PCT,
+)
+
+
+class StrategyEngine:
+    """
+    Reactive strategy heuristics for production and R&D allocation.
+
+    V1 is deliberately simple — reactive, not predictive.
+    This keeps the model debuggable and the logic transparent.
+    """
+
+    # ── Production Reallocation ──
+
+    @staticmethod
+    def compute_capacity_shifts(
+        sales: dict[str, SalesRecord],
+        capacity: dict[str, int],
+    ) -> dict[str, int]:
+        """
+        Determine how many units to shift for each product type.
+
+        Rules:
+          - demand_ratio > 0.90 → increase (sold out)
+          - demand_ratio < 0.50 → decrease (underperforming)
+          - Shifts are zero-sum: net shifts must equal 0.
+
+        Returns a dict of {product_type: shift_amount} where
+        positive = increase, negative = decrease.
+        """
+        total_capacity = sum(capacity.values())
+        max_shift = min(
+            CAPACITY_SHIFT_MAX_UNITS,
+            int(total_capacity * CAPACITY_SHIFT_PCT),
+        )
+
+        raw_shifts: dict[str, int] = {}
+        for ptype, cap in capacity.items():
+            if cap == 0:
+                raw_shifts[ptype] = 0
+                continue
+
+            record = sales.get(ptype)
+            units_sold = record.units_sold if record else 0
+            demand_ratio = units_sold / cap
+
+            if demand_ratio > 0.90:
+                raw_shifts[ptype] = max_shift
+            elif demand_ratio < 0.50:
+                raw_shifts[ptype] = -max_shift
+            else:
+                raw_shifts[ptype] = 0
+
+        # Enforce zero-sum constraint
+        return StrategyEngine._enforce_zero_sum(raw_shifts, capacity)
+
+    @staticmethod
+    def _enforce_zero_sum(
+        shifts: dict[str, int],
+        capacity: dict[str, int],
+    ) -> dict[str, int]:
+        """
+        Adjust shifts to be zero-sum while respecting capacity floors.
+        No product type's capacity can go below 0.
+        """
+        net = sum(shifts.values())
+        if net == 0:
+            return shifts
+
+        # Distribute the imbalance across eligible types
+        adjusted = dict(shifts)
+        if net > 0:
+            # Too much increase — reduce the increases proportionally
+            increasers = [k for k, v in adjusted.items() if v > 0]
+            if increasers:
+                reduction_each = net // len(increasers)
+                remainder = net % len(increasers)
+                for i, k in enumerate(increasers):
+                    adjusted[k] -= reduction_each + (1 if i < remainder else 0)
+        else:
+            # Too much decrease — reduce the decreases
+            decreasers = [k for k, v in adjusted.items() if v < 0]
+            if decreasers:
+                increase_each = abs(net) // len(decreasers)
+                remainder = abs(net) % len(decreasers)
+                for i, k in enumerate(decreasers):
+                    adjusted[k] += increase_each + (1 if i < remainder else 0)
+
+        # Floor: no capacity goes negative
+        for ptype in adjusted:
+            if capacity[ptype] + adjusted[ptype] < 0:
+                adjusted[ptype] = -capacity[ptype]
+
+        return adjusted
+
+    @staticmethod
+    def compute_retooling_cost(shifts: dict[str, int]) -> float:
+        """Total retooling cost for the given capacity shifts."""
+        total_moved = sum(abs(v) for v in shifts.values())
+        return total_moved * RETOOLING_COST_PER_UNIT
+
+    # ── R&D Allocation ──
+
+    @staticmethod
+    def compute_r_and_d_allocation(
+        capital: float,
+        sales: dict[str, SalesRecord],
+        product_types: list[str],
+    ) -> dict[str, float]:
+        """
+        Decide how to split R&D budget across product types.
+
+        Rules:
+          - Total R&D budget = capital × R_AND_D_BUDGET_PCT
+          - EV gets at least R_AND_D_EV_FLOOR_PCT of the budget
+          - Remaining split proportional to sales volume
+          - ICE gets no R&D (legacy, not investing in improvement)
+        """
+        budget = capital * R_AND_D_BUDGET_PCT
+        if budget <= 0:
+            return {pt: 0.0 for pt in product_types}
+
+        total_units = sum(
+            s.units_sold for s in sales.values()
+            if s.product_type != "ICE"
+        )
+
+        allocation: dict[str, float] = {}
+        for pt in product_types:
+            if pt == "ICE":
+                allocation[pt] = 0.0
+            elif pt == "EV":
+                if total_units > 0:
+                    ev_sold = sales.get("EV")
+                    ev_share = (ev_sold.units_sold / total_units) if ev_sold else 0
+                    allocation[pt] = budget * max(R_AND_D_EV_FLOOR_PCT, ev_share)
+                else:
+                    allocation[pt] = budget * R_AND_D_EV_FLOOR_PCT
+            else:
+                # Hybrid and any others get the remainder
+                allocation[pt] = 0.0  # computed below
+
+        # Remainder goes to non-ICE, non-EV types
+        ev_amount = allocation.get("EV", 0.0)
+        remaining = budget - ev_amount
+        other_types = [pt for pt in product_types if pt not in ("ICE", "EV")]
+        if other_types:
+            per_type = remaining / len(other_types)
+            for pt in other_types:
+                allocation[pt] = per_type
+
+        return allocation
