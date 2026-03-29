@@ -30,5 +30,12 @@ htmlcov/
 output/
 *.png
 
+# Node / React
+node_modules/
+player/dist/
+.eslintcache
+*.log
+.npm/
+
 # uv
 uv.lock
