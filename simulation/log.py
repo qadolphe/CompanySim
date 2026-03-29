@@ -4,6 +4,7 @@ Simulation log — structured data collection backing a Pandas DataFrame.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pandas as pd
@@ -22,6 +23,7 @@ class SimulationLog:
 
     def __init__(self) -> None:
         self._records: list[dict[str, Any]] = []
+        self._micro_records: list[dict[str, Any]] = []
 
     def record(
         self,
@@ -118,3 +120,21 @@ class SimulationLog:
     @property
     def tick_count(self) -> int:
         return len(self._records)
+
+    def record_micro(
+        self,
+        year: int,
+        macro_state: dict[str, Any],
+        consumers: list[dict[str, Any]],
+    ) -> None:
+        """Record per-consumer micro state for one tick."""
+        self._micro_records.append({
+            "year": year,
+            "macro_state": macro_state,
+            "micro_state": consumers,
+        })
+
+    def to_micro_json(self, path: str) -> None:
+        """Write the micro-state log to a JSON file."""
+        with open(path, "w") as f:
+            json.dump(self._micro_records, f)

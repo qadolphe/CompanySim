@@ -17,6 +17,7 @@ from domain.producer.strategy import StrategyEngine
 from simulation.config import (
     INITIAL_CAPITAL,
     PRODUCTION_CAPACITY,
+    CAPACITY_SHIFT_MAX_UNITS,
     COGS_PCT,
     DEFAULT_VEHICLE_CATALOG,
     DRIVETRAINS,
@@ -25,6 +26,7 @@ from simulation.config import (
     EV_RND_RANGE_BONUS_MI,
     HYBRID_RND_MILESTONE_COST,
     HYBRID_RND_MSRP_REDUCTION_PCT,
+    RETOOLING_COST_PER_UNIT,
 )
 
 

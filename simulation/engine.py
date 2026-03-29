@@ -65,6 +65,7 @@ class SimulationEngine:
         while not self.env.is_complete:
             self._tick()
             self.env.tick()
+        self.log.to_micro_json("output/simulation_micro.json")
         return self.log.to_dataframe()
 
     def _tick(self) -> None:
@@ -129,3 +130,14 @@ class SimulationEngine:
             producer_state=producer_state,
             consumer_stats=consumer_stats,
         )
+
+        # 7b. Micro-state log for React web player
+        macro_state = {
+            "legacy_capital": self.legacy_maker.ledger.capital,
+            "startup_capital": self.startup_maker.ledger.capital,
+            "ev_tax_credit": env_snapshot.ev_tax_credit,
+            "gas_price_per_gallon": env_snapshot.gas_price_per_gallon,
+            "emissions_penalty_per_unit": env_snapshot.emissions_penalty_per_unit,
+        }
+        micro_state = [c.profile.to_micro_dict() for c in self.population]
+        self.log.record_micro(env_snapshot.year, macro_state, micro_state)

@@ -29,3 +29,12 @@ class ConsumerProfile:
     def daily_commute_miles(self) -> float:
         """Approximate daily commute assuming 250 working days."""
         return self.annual_commute_miles / 250.0
+
+    def to_micro_dict(self) -> dict:
+        """Serialize to a compact dict for the React micro-state log."""
+        return {
+            "id": self.id,
+            "income": self.annual_income,
+            "vehicle": self.current_vehicle,
+            "just_bought": self.years_owned == 0 and self.current_vehicle is not None,
+        }
