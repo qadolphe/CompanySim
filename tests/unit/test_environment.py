@@ -105,12 +105,12 @@ class TestPolicySchedules:
             svc.tick()
         snap = svc.snapshot()
         assert snap.year == 2027
-        assert snap.ev_tax_credit == 5_000.0  # 2027-2029 bracket
+        assert snap.ev_tax_credit == 6_000.0  # 2027-2028 bracket
 
     def test_ev_tax_credit_2030(
         self, env_snapshot_2030: PolicySnapshot
     ) -> None:
-        assert env_snapshot_2030.ev_tax_credit == 2_500.0
+        assert env_snapshot_2030.ev_tax_credit == 4_500.0
 
     def test_emissions_penalty_starts_zero(
         self, env_snapshot_2024: PolicySnapshot
@@ -227,6 +227,7 @@ class TestPolicySnapshot:
             "interest_rate",
             "emissions_penalty_per_unit",
             "cafe_ev_mandate_pct",
+            "charging_infrastructure_index",
         }
         actual_fields = set(env_snapshot_2024.to_dict().keys())
         assert actual_fields == required_fields

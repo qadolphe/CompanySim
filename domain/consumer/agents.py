@@ -39,7 +39,7 @@ class ConsumerAgent(ABC):
         env: PolicySnapshot,
     ) -> Optional[str]:
         """
-        Evaluate all available offerings and return the product_type
+        Evaluate all available offerings and return the offering_id
         of the chosen one, or None if nothing is affordable/desirable.
         """
         ...
@@ -108,10 +108,10 @@ class AutoConsumer(ConsumerAgent):
     ) -> Optional[str]:
         """
         Evaluate all offerings, filter by affordability, return the
-        product_type with the highest utility. Returns None if nothing
+        offering_id with the highest utility. Returns None if nothing
         is affordable.
         """
-        best_type: Optional[str] = None
+        best_offering_id: Optional[str] = None
         best_utility: float = float("-inf")
 
         for offering in offerings:
@@ -123,9 +123,9 @@ class AutoConsumer(ConsumerAgent):
 
             if utility > best_utility:
                 best_utility = utility
-                best_type = offering["product_type"]
+                best_offering_id = offering["offering_id"]
 
-        return best_type
+        return best_offering_id
 
     def record_purchase(self, product_type: str) -> None:
         """Update profile after buying a vehicle."""

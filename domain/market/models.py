@@ -41,6 +41,17 @@ class ProductOffering(ABC):
 
     @property
     @abstractmethod
+    def producer_id(self) -> str:
+        """Identifier of the firm offering this product."""
+        ...
+
+    @property
+    def offering_id(self) -> str:
+        """Unique identifier for this offering (e.g., 'FirmA_EV')."""
+        return f"{self.producer_id}_{self.product_type}"
+
+    @property
+    @abstractmethod
     def price(self) -> float:
         """Consumer-facing price."""
         ...
@@ -74,11 +85,16 @@ class VehicleOffering(ProductOffering):
     range_mi: float
     annual_maintenance: float
     kwh_per_mile: float | None  # Only for EVs
+    _producer_id: str = "LegacyAutomaker"  # Default for backward compatibility
     _units_available: int = field(default=0, repr=False)
 
     @property
     def product_type(self) -> str:
         return self.drivetrain
+
+    @property
+    def producer_id(self) -> str:
+        return self._producer_id
 
     @property
     def price(self) -> float:
@@ -101,6 +117,8 @@ class VehicleOffering(ProductOffering):
         data like cost structure, margin, etc.
         """
         return {
+            "offering_id": self.offering_id,
+            "producer_id": self._producer_id,
             "product_type": self.drivetrain,
             "msrp": self.msrp,
             "mpg": self.mpg,
@@ -117,8 +135,9 @@ class VehicleOffering(ProductOffering):
 @dataclass(frozen=True)
 class SalesRecord:
     """
-    Immutable record of sales for a single product type in a single tick.
+    Immutable record of sales for a single product offering in a single tick.
     """
+    offering_id: str
     product_type: str
     units_sold: int
     revenue: float

@@ -81,9 +81,9 @@ class TestFullSimulation:
 
     def test_capital_stays_positive(self, full_results: pd.DataFrame) -> None:
         """Automaker capital should remain positive throughout."""
-        assert (full_results["capital"] > 0).all(), (
+        assert (full_results["legacyautomaker_capital"] > 0).all(), (
             "Capital went negative in years: "
-            + str(full_results[full_results["capital"] <= 0].index.tolist())
+            + str(full_results[full_results["legacyautomaker_capital"] <= 0].index.tolist())
         )
 
     def test_total_capacity_stable(self, full_results: pd.DataFrame) -> None:
@@ -96,7 +96,7 @@ class TestFullSimulation:
             )
 
     def test_market_shares_sum_to_one(self, full_results: pd.DataFrame) -> None:
-        share_cols = [c for c in full_results.columns if c.startswith("share_")]
+        share_cols = [c for c in full_results.columns if c.startswith("share_type_")]
         if share_cols:
             totals = full_results[share_cols].sum(axis=1)
             for year, total in totals.items():
@@ -106,7 +106,7 @@ class TestFullSimulation:
 
     def test_dataframe_has_no_nan(self, full_results: pd.DataFrame) -> None:
         """No NaN values should appear in the core columns."""
-        core_cols = ["capital", "sales_total_units", "sales_total_revenue"]
+        core_cols = ["legacyautomaker_capital", "sales_total_units", "sales_total_revenue"]
         for col in core_cols:
             if col in full_results.columns:
                 assert not full_results[col].isna().any(), (
@@ -140,18 +140,18 @@ class TestPolicySensitivity:
             is_homeowner=True,
             current_vehicle="ICE", years_owned=7,
         )
-        ev = {"product_type": "EV", "msrp": 42_000, "mpg": None,
+        ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42_000, "mpg": None,
               "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
 
         env_high_credit = PolicySnapshot(
             year=2024, ev_tax_credit=7_500, gas_price_per_gallon=3.5,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
         env_no_credit = PolicySnapshot(
             year=2024, ev_tax_credit=0, gas_price_per_gallon=3.5,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
 
         u_high = calc.compute(profile, ev, env_high_credit)

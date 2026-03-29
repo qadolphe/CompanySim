@@ -18,7 +18,7 @@ def env_2024() -> PolicySnapshot:
     return PolicySnapshot(
         year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.50,
         electricity_price_per_kwh=0.14, interest_rate=0.07,
-        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
     )
 
 
@@ -95,7 +95,7 @@ class TestConsumerMarketFlow:
                     marketplace.attempt_purchase(choice)
 
         summary = marketplace.get_sales_summary()
-        assert summary["EV"].units_sold <= 5
+        assert summary["LegacyAutomaker_EV"].units_sold <= 5
 
     def test_market_split_is_reasonable(
         self, env_2024: PolicySnapshot, full_catalog: list[VehicleOffering]

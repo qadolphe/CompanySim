@@ -20,31 +20,33 @@ def sample_env() -> PolicySnapshot:
     return PolicySnapshot(
         year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.50,
         electricity_price_per_kwh=0.14, interest_rate=0.07,
-        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
     )
 
 
 @pytest.fixture
 def sample_sales() -> dict[str, SalesRecord]:
     return {
-        "ICE": SalesRecord("ICE", 500, 16_000_000),
-        "HYBRID": SalesRecord("HYBRID", 200, 7_000_000),
-        "EV": SalesRecord("EV", 100, 4_200_000),
+        "ICE": SalesRecord("ICE", "ICE", 500, 16_000_000),
+        "HYBRID": SalesRecord("HYBRID", "HYBRID", 200, 7_000_000),
+        "EV": SalesRecord("EV", "EV", 100, 4_200_000),
     }
 
 
 @pytest.fixture
 def sample_producer_state() -> dict:
     return {
-        "capital": 5_000_000_000,
-        "total_capacity": 100_000,
-        "capacity": {"ICE": 60000, "HYBRID": 25000, "EV": 15000},
-        "msrp_reductions": {"ICE": 0.0, "HYBRID": 0.0, "EV": 0.0},
-        "range_bonuses": {"ICE": 0.0, "HYBRID": 0.0, "EV": 0.0},
-        "financials": {
+        "LegacyAutomaker": {
             "capital": 5_000_000_000,
-            "cumulative_revenue": 27_200_000,
-        },
+            "total_capacity": 100_000,
+            "capacity": {"ICE": 60000, "HYBRID": 25000, "EV": 15000},
+            "msrp_reductions": {"ICE": 0.0, "HYBRID": 0.0, "EV": 0.0},
+            "range_bonuses": {"ICE": 0.0, "HYBRID": 0.0, "EV": 0.0},
+            "financials": {
+                "capital": 5_000_000_000,
+                "cumulative_revenue": 27_200_000,
+            },
+        }
     }
 
 
@@ -91,16 +93,20 @@ class TestSimulationLog:
     ) -> None:
         log.record(sample_env, sample_sales, sample_producer_state)
         df = log.to_dataframe()
-        share_cols = [c for c in df.columns if c.startswith("share_")]
+        share_cols = [c for c in df.columns if c.startswith("share_type_")]
         total_share = df[share_cols].iloc[0].sum()
         assert total_share == pytest.approx(1.0, abs=0.001)
+
+        share_cols_firm = [c for c in df.columns if c.startswith("share_firm_")]
+        total_share_firm = df[share_cols_firm].iloc[0].sum()
+        assert total_share_firm == pytest.approx(1.0, abs=0.001)
 
     def test_multi_tick_log(self, log, sample_sales, sample_producer_state) -> None:
         for yr in range(2024, 2027):
             env = PolicySnapshot(
                 year=yr, ev_tax_credit=7500, gas_price_per_gallon=3.5,
                 electricity_price_per_kwh=0.14, interest_rate=0.07,
-                emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+                emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
             )
             log.record(env, sample_sales, sample_producer_state)
         df = log.to_dataframe()

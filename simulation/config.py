@@ -78,8 +78,8 @@ PRODUCTION_CAPACITY: dict[str, int] = {
 R_AND_D_BUDGET_PCT: float = 0.15          # % of capital allocated to R&D
 R_AND_D_EV_FLOOR_PCT: float = 0.30        # Minimum % of R&D going to EV
 RETOOLING_COST_PER_UNIT: float = 1_000.0  # Scaled down from $10K
-CAPACITY_SHIFT_MAX_UNITS: int = 50
-CAPACITY_SHIFT_PCT: float = 0.05
+CAPACITY_SHIFT_MAX_UNITS: int = 100       # Increased from 50 (faster pivots)
+CAPACITY_SHIFT_PCT: float = 0.10          # Increased from 0.05
 
 # R&D Milestone thresholds (scaled to 1K-consumer economy)
 EV_RND_MILESTONE_COST: float = 20_000_000.0       # Every $20M → milestone
@@ -89,11 +89,13 @@ HYBRID_RND_MILESTONE_COST: float = 10_000_000.0
 HYBRID_RND_MSRP_REDUCTION_PCT: float = 0.03       # 3% MSRP drop per milestone
 
 # ── Policy Schedules (year → value) ──
-# EV Tax Credit: steps down over time
+# EV Tax Credit: steps down over time (smoother cliff)
 EV_TAX_CREDIT_SCHEDULE: dict[tuple[int, int], float] = {
     (2024, 2026): 7_500.0,
-    (2027, 2029): 5_000.0,
-    (2030, 2035): 2_500.0,
+    (2027, 2028): 6_000.0,
+    (2029, 2030): 4_500.0,
+    (2031, 2032): 3_000.0,
+    (2033, 2035): 1_500.0,
 }
 
 # Emissions penalty: ramps up ($ per ICE unit sold)
@@ -122,6 +124,16 @@ INTEREST_RATE_SCHEDULE: dict[tuple[int, int], float] = {
     (2028, 2029): 0.055,
     (2030, 2031): 0.050,
     (2032, 2035): 0.045,
+}
+
+# Charging Infrastructure Index (0.0=non-existent, 1.0=ubiquitous as gas)
+CHARGING_INFRASTRUCTURE_SCHEDULE: dict[tuple[int, int], float] = {
+    (2024, 2025): 0.10,
+    (2026, 2027): 0.25,
+    (2028, 2029): 0.40,
+    (2030, 2031): 0.60,
+    (2032, 2033): 0.75,
+    (2034, 2035): 0.90,
 }
 
 # ── Exogenous Economic Baselines ──

@@ -102,7 +102,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
         # ── Ownership hassle (only for EVs) ──
         ownership_hassle = 0.0
         if offering["product_type"] == "EV":
-            ownership_hassle = self._compute_ownership_hassle(profile)
+            ownership_hassle = self._compute_ownership_hassle(profile, env)
 
         return (
             -alpha * tco_normalized
@@ -187,6 +187,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
     @staticmethod
     def _compute_ownership_hassle(
         profile: ConsumerProfile,
+        env: PolicySnapshot,
     ) -> float:
         """
         Ownership hassle penalty for EVs based on housing and income.
@@ -227,4 +228,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
         # Short commuters (<30mi) care less; long commuters care more
         intensity = 0.5 + 0.5 * commute_factor  # range: 0.5 – 1.5
 
-        return min(base_hassle * intensity, 1.0) * UTILITY_DELTA_MAX
+        # As infrastructure improves (index approaches 1.0), hassle drops to 0
+        infrastructure_multiplier = 1.0 - env.charging_infrastructure_index
+
+        return min(base_hassle * intensity, 1.0) * UTILITY_DELTA_MAX * infrastructure_multiplier

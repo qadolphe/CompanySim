@@ -19,6 +19,7 @@ from simulation.config import (
     GAS_PRICE_ANNUAL_GROWTH,
     ELECTRICITY_PRICE_BASE,
     ELECTRICITY_PRICE_ANNUAL_GROWTH,
+    CHARGING_INFRASTRUCTURE_SCHEDULE,
 )
 
 
@@ -83,6 +84,7 @@ class EnvironmentService:
             interest_rate=self._interest_rate(),
             emissions_penalty_per_unit=self._emissions_penalty(),
             cafe_ev_mandate_pct=self._cafe_ev_mandate(),
+            charging_infrastructure_index=self._charging_infrastructure_index(),
         )
 
     # ── Private: Schedule Lookups ──
@@ -114,6 +116,9 @@ class EnvironmentService:
 
     def _interest_rate(self) -> float:
         return self._lookup_schedule(INTEREST_RATE_SCHEDULE, self._current_year)
+
+    def _charging_infrastructure_index(self) -> float:
+        return self._lookup_schedule(CHARGING_INFRASTRUCTURE_SCHEDULE, self._current_year)
 
     # ── Private: Compounding Economic Variables ──
 

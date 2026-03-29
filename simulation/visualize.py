@@ -42,18 +42,19 @@ class SimulationVisualizer:
         if ax is None:
             fig, ax = plt.subplots(figsize=FIG_SIZE)
 
-        share_cols = [c for c in self.df.columns if c.startswith("share_")]
-        labels = [c.replace("share_", "").replace("_pct", "").upper()
+        share_cols = [c for c in self.df.columns if c.startswith("share_type_")]
+        labels = [c.replace("share_type_", "").replace("_pct", "").upper()
                   for c in share_cols]
         colors = [PALETTE.get(l, "#95A5A6") for l in labels]
 
-        ax.stackplot(
-            self.df.index,
-            [self.df[c] * 100 for c in share_cols],
-            labels=labels,
-            colors=colors,
-            alpha=0.85,
-        )
+        if share_cols:
+            ax.stackplot(
+                self.df.index,
+                [self.df[c] * 100 for c in share_cols],
+                labels=labels,
+                colors=colors,
+                alpha=0.85,
+            )
         ax.set_title("Market Share by Drivetrain", fontsize=14, fontweight="bold")
         ax.set_xlabel("Year")
         ax.set_ylabel("Market Share (%)")
@@ -62,17 +63,45 @@ class SimulationVisualizer:
 
         return fig or ax.get_figure()
 
-    def plot_automaker_financials(self, ax: plt.Axes | None = None) -> plt.Figure:
-        """Line chart: Capital over time."""
+    def plot_brand_market_share(self, ax: plt.Axes | None = None) -> plt.Figure:
+        """Stacked area chart: Firm market share over time."""
         fig = None
         if ax is None:
             fig, ax = plt.subplots(figsize=FIG_SIZE)
 
-        capital_billions = self.df["capital"] / 1e9
-        ax.plot(self.df.index, capital_billions, color="#3498DB",
-                linewidth=2.5, marker="o", markersize=5)
-        ax.fill_between(self.df.index, capital_billions, alpha=0.15,
-                        color="#3498DB")
+        share_cols = [c for c in self.df.columns if c.startswith("share_firm_")]
+        labels = [c.replace("share_firm_", "").replace("_pct", "").title()
+                  for c in share_cols]
+
+        if share_cols:
+            ax.stackplot(
+                self.df.index,
+                [self.df[c] * 100 for c in share_cols],
+                labels=labels,
+                alpha=0.85,
+            )
+        ax.set_title("Market Share by Brand", fontsize=14, fontweight="bold")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Market Share (%)")
+        ax.set_ylim(0, 100)
+        ax.legend(loc="upper left")
+
+        return fig or ax.get_figure()
+
+    def plot_automaker_financials(self, ax: plt.Axes | None = None) -> plt.Figure:
+        """Line chart: Capital over time for all firms."""
+        fig = None
+        if ax is None:
+            fig, ax = plt.subplots(figsize=FIG_SIZE)
+
+        capital_cols = [c for c in self.df.columns if c.endswith("_capital")]
+        for col in capital_cols:
+            firm_name = col.replace("_capital", "").title()
+            capital_billions = self.df[col] / 1e9
+            ax.plot(self.df.index, capital_billions,
+                    linewidth=2.5, marker="o", markersize=5, label=firm_name)
+            ax.fill_between(self.df.index, capital_billions, alpha=0.15)
+
         ax.set_title("Automaker Capital Over Time", fontsize=14,
                       fontweight="bold")
         ax.set_xlabel("Year")
@@ -80,6 +109,7 @@ class SimulationVisualizer:
         ax.yaxis.set_major_formatter(
             mticker.FuncFormatter(lambda x, _: f"${x:.1f}B")
         )
+        ax.legend()
 
         return fig or ax.get_figure()
 
@@ -92,9 +122,15 @@ class SimulationVisualizer:
         from simulation.config import DEFAULT_VEHICLE_CATALOG
         for dt in ["ICE", "HYBRID", "EV"]:
             base = DEFAULT_VEHICLE_CATALOG[dt]["msrp"]
-            col = f"msrp_reduction_{dt.lower()}_pct"
-            if col in self.df.columns:
-                prices = base * (1 - self.df[col])
+            
+            # Find all reduction columns for this drivetrain (across firms)
+            dt_cols = [c for c in self.df.columns if c.endswith(f"_msrp_reduction_{dt.lower()}_pct")]
+            
+            if dt_cols:
+                # Average the reduction across active firms producing this DT
+                # Simple approximation: take the max reduction to represent the market leading price
+                max_reduction = self.df[dt_cols].max(axis=1)
+                prices = base * (1 - max_reduction)
                 ax.plot(self.df.index, prices / 1000, label=dt,
                         color=PALETTE[dt], linewidth=2, marker="s",
                         markersize=4)
@@ -116,18 +152,27 @@ class SimulationVisualizer:
         if ax is None:
             fig, ax = plt.subplots(figsize=FIG_SIZE)
 
-        cap_cols = [f"capacity_{dt.lower()}" for dt in ["ICE", "HYBRID", "EV"]
-                    if f"capacity_{dt.lower()}" in self.df.columns]
-        labels = [c.replace("capacity_", "").upper() for c in cap_cols]
-        colors = [PALETTE.get(l, "#95A5A6") for l in labels]
+        cap_cols = [c for c in self.df.columns if "_capacity_" in c]
+        labels = [c.split("_capacity_")[-1].upper() for c in cap_cols]
+        # Group by drivetrain to sum up across firms
+        agg_cols = {}
+        for col, label in zip(cap_cols, labels):
+            if label not in agg_cols:
+                agg_cols[label] = pd.Series(0.0, index=self.df.index)
+            agg_cols[label] += self.df[col]
+
+        ordered_labels = ["ICE", "HYBRID", "EV"]
+        ordered_labels = [l for l in ordered_labels if l in agg_cols]
+        colors = [PALETTE.get(l, "#95A5A6") for l in ordered_labels]
 
         bottom = pd.Series(0, index=self.df.index, dtype=float)
-        for col, label, color in zip(cap_cols, labels, colors):
-            ax.bar(self.df.index, self.df[col], bottom=bottom,
+        for label, color in zip(ordered_labels, colors):
+            series = agg_cols[label]
+            ax.bar(self.df.index, series, bottom=bottom,
                    label=label, color=color, alpha=0.85, width=0.6)
-            bottom += self.df[col]
+            bottom += series
 
-        ax.set_title("Production Capacity Allocation",
+        ax.set_title("Total Production Capacity Allocation",
                       fontsize=14, fontweight="bold")
         ax.set_xlabel("Year")
         ax.set_ylabel("Units")
@@ -222,7 +267,8 @@ class SimulationVisualizer:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         plots = {
-            "01_market_share": self.plot_market_share,
+            "01_drivetrain_market_share": self.plot_market_share,
+            "01_brand_market_share": self.plot_brand_market_share,
             "02_automaker_financials": self.plot_automaker_financials,
             "03_vehicle_pricing": self.plot_vehicle_pricing,
             "04_production_capacity": self.plot_production_capacity,

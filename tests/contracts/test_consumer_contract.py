@@ -44,16 +44,16 @@ def sample_env() -> PolicySnapshot:
     return PolicySnapshot(
         year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.50,
         electricity_price_per_kwh=0.14, interest_rate=0.07,
-        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
     )
 
 
 @pytest.fixture
 def sample_offerings() -> list[dict]:
     return [
-        {"product_type": "ICE", "msrp": 32_000, "mpg": 30,
+        {"offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 32_000, "mpg": 30,
          "range_mi": 400, "annual_maintenance": 1200, "kwh_per_mile": None},
-        {"product_type": "EV", "msrp": 42_000, "mpg": None,
+        {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42_000, "mpg": None,
          "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3},
     ]
 

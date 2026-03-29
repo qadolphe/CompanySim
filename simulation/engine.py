@@ -11,7 +11,7 @@ import pandas as pd
 from domain.environment.service import EnvironmentService
 from domain.consumer.factory import PopulationFactory
 from domain.consumer.agents import AutoConsumer
-from domain.producer.agents import LegacyAutomaker
+from domain.producer.agents import LegacyAutomaker, PureEVStartup
 from domain.market.marketplace import Marketplace
 from simulation.log import SimulationLog
 from simulation.config import (
@@ -48,9 +48,14 @@ class SimulationEngine:
     ) -> None:
         self.env = EnvironmentService(start_year, end_year)
         self.population = PopulationFactory.generate(n=num_consumers, seed=seed)
-        self.automaker = LegacyAutomaker(
+        self.legacy_maker = LegacyAutomaker(
             initial_capital=initial_capital,
             production_capacity=production_capacity or PRODUCTION_CAPACITY,
+        )
+        # Give the startup 50% of the initial capital and 150 units of EV capacity
+        self.startup_maker = PureEVStartup(
+            initial_capital=initial_capital * 0.5,
+            production_capacity=150,
         )
         self.marketplace = Marketplace()
         self.log = SimulationLog()
@@ -67,8 +72,10 @@ class SimulationEngine:
         # 1. Get environment state
         env_snapshot = self.env.snapshot()
 
-        # 2. Automaker posts catalog
-        offerings = self.automaker.generate_offerings(env_snapshot)
+        # 2. Automakers post catalog
+        offerings = []
+        offerings.extend(self.legacy_maker.generate_offerings(env_snapshot))
+        offerings.extend(self.startup_maker.generate_offerings(env_snapshot))
         self.marketplace.set_catalog(offerings)
 
         # 3. Consumers shop
@@ -79,18 +86,23 @@ class SimulationEngine:
         for consumer in self.population:
             if consumer.is_in_market():
                 shoppers += 1
-                choice = consumer.evaluate_and_choose(catalog_view, env_snapshot)
-                if choice:
-                    success = self.marketplace.attempt_purchase(choice)
+                choice_id = consumer.evaluate_and_choose(catalog_view, env_snapshot)
+                if choice_id:
+                    success = self.marketplace.attempt_purchase(choice_id)
                     if success:
-                        consumer.record_purchase(choice)
+                        # Extract product_type from choice_id (e.g. LegacyAutomaker_EV -> EV)
+                        # More resilient: look it up in catalog_view
+                        ptype = next(o["product_type"] for o in catalog_view if o["offering_id"] == choice_id)
+                        consumer.record_purchase(ptype)
                         buyers += 1
 
-        # 4. Get sales results
-        sales = self.marketplace.get_sales_summary()
+        # 4. Get sales results by firm
+        legacy_sales = self.marketplace.get_firm_sales_summary("LegacyAutomaker")
+        startup_sales = self.marketplace.get_firm_sales_summary("PureEVStartup")
 
-        # 5. Automaker processes sales and adjusts strategy
-        self.automaker.process_sales(sales, env_snapshot)
+        # 5. Automakers process sales and adjust strategy
+        self.legacy_maker.process_sales(legacy_sales, env_snapshot)
+        self.startup_maker.process_sales(startup_sales, env_snapshot)
 
         # 6. Age all consumers
         for consumer in self.population:
@@ -101,9 +113,19 @@ class SimulationEngine:
             "consumers_shopping": shoppers,
             "consumers_bought": buyers,
         }
+        
+        # Combine producer states for the log
+        producer_state = {
+            "LegacyAutomaker": self.legacy_maker.get_state(),
+            "PureEVStartup": self.startup_maker.get_state(),
+        }
+        
+        # Merge sales summaries
+        sales = self.marketplace.get_sales_summary()
+        
         self.log.record(
             env=env_snapshot,
             sales=sales,
-            producer_state=self.automaker.get_state(),
+            producer_state=producer_state,
             consumer_stats=consumer_stats,
         )

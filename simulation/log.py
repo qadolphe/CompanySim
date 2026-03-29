@@ -44,46 +44,62 @@ class SimulationLog:
         # ── Environment ──
         row.update(env.to_dict())
 
-        # ── Sales by type ──
+        # ── Sales & Market Share ──
         total_units = 0
         total_revenue = 0.0
-        for ptype, record in sales.items():
-            row[f"sales_{ptype.lower()}_units"] = record.units_sold
-            row[f"sales_{ptype.lower()}_revenue"] = record.revenue
+        type_units = {}
+        firm_units = {}
+
+        for off_id, record in sales.items():
+            ptype = record.product_type
+            firm = off_id.split("_")[0] if "_" in off_id else "unknown"
+
+            # Raw counts per offering
+            row[f"sales_{off_id.lower()}_units"] = record.units_sold
+            row[f"sales_{off_id.lower()}_revenue"] = record.revenue
+
+            # Aggregates
             total_units += record.units_sold
             total_revenue += record.revenue
+            type_units[ptype] = type_units.get(ptype, 0) + record.units_sold
+            firm_units[firm] = firm_units.get(firm, 0) + record.units_sold
+
         row["sales_total_units"] = total_units
         row["sales_total_revenue"] = total_revenue
 
-        # ── Market Share ──
         if total_units > 0:
-            for ptype, record in sales.items():
-                row[f"share_{ptype.lower()}_pct"] = (
-                    record.units_sold / total_units
-                )
+            for ptype, count in type_units.items():
+                row[f"share_type_{ptype.lower()}_pct"] = count / total_units
+            for firm, count in firm_units.items():
+                row[f"share_firm_{firm.lower()}_pct"] = count / total_units
         else:
-            for ptype in sales:
-                row[f"share_{ptype.lower()}_pct"] = 0.0
+            for ptype in type_units:
+                row[f"share_type_{ptype.lower()}_pct"] = 0.0
+            for firm in firm_units:
+                row[f"share_firm_{firm.lower()}_pct"] = 0.0
 
         # ── Producer State ──
-        row["capital"] = producer_state.get("capital", 0)
-        row["total_capacity"] = producer_state.get("total_capacity", 0)
+        # producer_state is now { firm_name: state_dict }
+        for firm_name, state in producer_state.items():
+            prefix = firm_name.lower()
+            row[f"{prefix}_capital"] = state.get("capital", 0)
+            row[f"{prefix}_total_capacity"] = state.get("total_capacity", 0)
 
-        capacity = producer_state.get("capacity", {})
-        for ptype, cap in capacity.items():
-            row[f"capacity_{ptype.lower()}"] = cap
+            capacity = state.get("capacity", {})
+            for ptype, cap in capacity.items():
+                row[f"{prefix}_capacity_{ptype.lower()}"] = cap
 
-        msrp_reductions = producer_state.get("msrp_reductions", {})
-        for ptype, red in msrp_reductions.items():
-            row[f"msrp_reduction_{ptype.lower()}_pct"] = red
+            msrp_reductions = state.get("msrp_reductions", {})
+            for ptype, red in msrp_reductions.items():
+                row[f"{prefix}_msrp_reduction_{ptype.lower()}_pct"] = red
 
-        range_bonuses = producer_state.get("range_bonuses", {})
-        for ptype, bonus in range_bonuses.items():
-            row[f"range_bonus_{ptype.lower()}_mi"] = bonus
+            range_bonuses = state.get("range_bonuses", {})
+            for ptype, bonus in range_bonuses.items():
+                row[f"{prefix}_range_bonus_{ptype.lower()}_mi"] = bonus
 
-        financials = producer_state.get("financials", {})
-        for key, val in financials.items():
-            row[f"fin_{key}"] = val
+            financials = state.get("financials", {})
+            for key, val in financials.items():
+                row[f"{prefix}_fin_{key}"] = val
 
         # ── Consumer Stats (if provided) ──
         if consumer_stats:

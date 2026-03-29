@@ -203,3 +203,104 @@ class LegacyAutomaker(ProducerAgent):
             "r_and_d": self.pipeline.to_dict(),
             "financials": self.ledger.to_dict(),
         }
+
+# ═══════════════════════════════════════════════════════════════════
+# Pure EV Startup Implementation
+# ═══════════════════════════════════════════════════════════════════
+
+class PureEVStartup(ProducerAgent):
+    """
+    A newly founded firm that only produces and sells Electric Vehicles.
+    It does not carry legacy ICE or Hybrid product lines, so 100% of its
+    capital and capacity are dedicated to EVs.
+    """
+
+    def __init__(
+        self,
+        initial_capital: float = INITIAL_CAPITAL,
+        production_capacity: int = 0,
+        base_ev_spec: dict | None = None,
+    ) -> None:
+        self.ledger = CapitalLedger(capital=initial_capital)
+        self.capacity = {"EV": production_capacity}
+        self.pipeline = RAndDPipeline()
+        
+        # Base EV spec for the startup (usually more premium or disruptive initially)
+        self._base_spec = deepcopy(base_ev_spec or DEFAULT_VEHICLE_CATALOG["EV"])
+        if base_ev_spec is None:
+            # The startup enters the market with a slightly cheaper, longer-range EV
+            self._base_spec["msrp"] -= 2000
+            self._base_spec["range_mi"] += 50
+        
+        self._msrp_reduction = 0.0
+        self._range_bonus = 0.0
+        self._last_sales: dict[str, SalesRecord] | None = None
+
+    def generate_offerings(
+        self, env: PolicySnapshot
+    ) -> list[ProductOffering]:
+        """Generate the single EV catalog with a unique producer ID."""
+        msrp = self._base_spec["msrp"] * (1.0 - self._msrp_reduction)
+        range_mi = self._base_spec["range_mi"] + self._range_bonus
+
+        offering = VehicleOffering(
+            drivetrain="EV",
+            msrp=round(msrp, 2),
+            mpg=None,
+            range_mi=round(range_mi, 1),
+            annual_maintenance=self._base_spec["annual_maintenance"],
+            kwh_per_mile=self._base_spec.get("kwh_per_mile"),
+            _producer_id="PureEVStartup",
+            _units_available=self.capacity.get("EV", 0),
+        )
+        return [offering]
+
+    def process_sales(
+        self, sales: dict[str, SalesRecord], env: PolicySnapshot
+    ) -> None:
+        self._last_sales = sales
+        ev_sales = sales.get("EV")
+        if not ev_sales:
+            return  # No sales to process
+
+        # 1. Revenue
+        self.ledger.record_revenue(ev_sales.revenue)
+
+        # 2. COGS
+        cogs = ev_sales.revenue * COGS_PCT
+        self.ledger.record_cost(cogs, "cogs")
+
+        # 3. R&D Allocation - 100% of R&D budget goes to EV
+        r_and_d_total = self.ledger.capital * 0.15  # Use the config pct
+        if r_and_d_total > 0:
+            self.pipeline.invest("EV", r_and_d_total)
+            self.ledger.record_cost(r_and_d_total, "r_and_d")
+
+        # 4. R&D Milestones
+        new_ev = self.pipeline.check_and_award_milestones("EV", EV_RND_MILESTONE_COST)
+        if new_ev > 0:
+            self._msrp_reduction += new_ev * EV_RND_MSRP_REDUCTION_PCT
+            self._range_bonus += new_ev * EV_RND_RANGE_BONUS_MI
+
+        # 5. Capacity Reallocation - expand capacity if sold out
+        sell_out_ratio = ev_sales.units_sold / float(max(1, self.capacity["EV"] + ev_sales.units_sold))
+        # Wait, the available units were reduced by identical amount as units sold. 
+        # Actually in the marketplace, it decrements the original offering.
+        # Let's approximate: if we sold everything we produced, expand.
+        if ev_sales.units_sold > 0 and ev_sales.units_sold >= self.capacity["EV"] * 0.9:
+            shift = CAPACITY_SHIFT_MAX_UNITS  # Max growth possible
+            retooling_cost = shift * RETOOLING_COST_PER_UNIT
+            if self.ledger.capital >= retooling_cost:
+                self.capacity["EV"] += shift
+                self.ledger.record_cost(retooling_cost, "retooling")
+
+    def get_state(self) -> dict:
+        return {
+            "capital": self.ledger.capital,
+            "capacity": dict(self.capacity),
+            "total_capacity": sum(self.capacity.values()),
+            "msrp_reductions": {"EV": self._msrp_reduction},
+            "range_bonuses": {"EV": self._range_bonus},
+            "r_and_d": self.pipeline.to_dict(),
+            "financials": self.ledger.to_dict(),
+        }

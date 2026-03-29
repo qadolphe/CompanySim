@@ -109,7 +109,7 @@ class TestAutomakerFinancials:
         return PolicySnapshot(
             year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.50,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=500, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=500, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
 
     @pytest.fixture
@@ -125,9 +125,9 @@ class TestAutomakerFinancials:
         """Capital should change after processing sales."""
         initial = automaker.ledger.capital
         sales = {
-            "ICE": SalesRecord("ICE", 500, 16_000_000),
-            "HYBRID": SalesRecord("HYBRID", 200, 7_000_000),
-            "EV": SalesRecord("EV", 100, 4_200_000),
+            "ICE": SalesRecord("ICE", "ICE", 500, 16_000_000),
+            "HYBRID": SalesRecord("HYBRID", "HYBRID", 200, 7_000_000),
+            "EV": SalesRecord("EV", "EV", 100, 4_200_000),
         }
         automaker.process_sales(sales, env)
         assert automaker.ledger.capital != initial
@@ -137,9 +137,9 @@ class TestAutomakerFinancials:
     ) -> None:
         """Penalties should be deducted for ICE sales."""
         sales = {
-            "ICE": SalesRecord("ICE", 100, 3_200_000),
-            "HYBRID": SalesRecord("HYBRID", 0, 0),
-            "EV": SalesRecord("EV", 0, 0),
+            "ICE": SalesRecord("ICE", "ICE", 100, 3_200_000),
+            "HYBRID": SalesRecord("HYBRID", "HYBRID", 0, 0),
+            "EV": SalesRecord("EV", "EV", 0, 0),
         }
         automaker.process_sales(sales, env)
         # Penalty = 100 units × $500 = $50,000
@@ -153,9 +153,9 @@ class TestAutomakerFinancials:
         env_no_penalty = PolicySnapshot(
             year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.50,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
-        sales = {"ICE": SalesRecord("ICE", 500, 16_000_000)}
+        sales = {"ICE": SalesRecord("ICE", "ICE", 500, 16_000_000)}
         automaker.process_sales(sales, env_no_penalty)
         assert automaker.ledger.cumulative_penalties == 0.0
 

@@ -46,7 +46,7 @@ class TestCatalog:
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
     ) -> None:
         marketplace.set_catalog(sample_offerings)
-        assert marketplace.product_types == ["ICE", "EV"]
+        assert set(marketplace.product_types) == {"ICE", "EV"}
 
     def test_consumer_view_hides_inventory(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
@@ -72,12 +72,12 @@ class TestCatalog:
     ) -> None:
         """Setting a new catalog should reset all sales counters."""
         marketplace.set_catalog(sample_offerings)
-        marketplace.attempt_purchase("ICE")
-        marketplace.attempt_purchase("ICE")
+        marketplace.attempt_purchase("LegacyAutomaker_ICE")
+        marketplace.attempt_purchase("LegacyAutomaker_ICE")
         # Reset
         marketplace.set_catalog(sample_offerings)
         summary = marketplace.get_sales_summary()
-        assert summary["ICE"].units_sold == 0
+        assert summary["LegacyAutomaker_ICE"].units_sold == 0
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -90,15 +90,15 @@ class TestPurchases:
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
     ) -> None:
         marketplace.set_catalog(sample_offerings)
-        assert marketplace.attempt_purchase("ICE") is True
+        assert marketplace.attempt_purchase("LegacyAutomaker_ICE") is True
 
     def test_purchase_decrements_inventory(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
     ) -> None:
         marketplace.set_catalog(sample_offerings)
-        marketplace.attempt_purchase("ICE")
+        marketplace.attempt_purchase("LegacyAutomaker_ICE")
         summary = marketplace.get_sales_summary()
-        assert summary["ICE"].units_sold == 1
+        assert summary["LegacyAutomaker_ICE"].units_sold == 1
 
     def test_purchase_unknown_type_fails(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
@@ -109,7 +109,7 @@ class TestPurchases:
     def test_purchase_empty_catalog_fails(
         self, marketplace: Marketplace
     ) -> None:
-        assert marketplace.attempt_purchase("ICE") is False
+        assert marketplace.attempt_purchase("LegacyAutomaker_ICE") is False
 
     def test_sellout_blocks_further_purchases(
         self, marketplace: Marketplace
@@ -122,19 +122,19 @@ class TestPurchases:
             ),
         ]
         marketplace.set_catalog(offerings)
-        assert marketplace.attempt_purchase("EV") is True
-        assert marketplace.attempt_purchase("EV") is True
-        assert marketplace.attempt_purchase("EV") is True
-        assert marketplace.attempt_purchase("EV") is False  # sold out
+        assert marketplace.attempt_purchase("LegacyAutomaker_EV") is True
+        assert marketplace.attempt_purchase("LegacyAutomaker_EV") is True
+        assert marketplace.attempt_purchase("LegacyAutomaker_EV") is True
+        assert marketplace.attempt_purchase("LegacyAutomaker_EV") is False  # sold out
 
     def test_purchase_tracks_revenue(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
     ) -> None:
         marketplace.set_catalog(sample_offerings)
-        marketplace.attempt_purchase("EV")
-        marketplace.attempt_purchase("EV")
+        marketplace.attempt_purchase("LegacyAutomaker_EV")
+        marketplace.attempt_purchase("LegacyAutomaker_EV")
         summary = marketplace.get_sales_summary()
-        assert summary["EV"].revenue == pytest.approx(84_000.0)
+        assert summary["LegacyAutomaker_EV"].revenue == pytest.approx(84_000.0)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -148,7 +148,8 @@ class TestSalesSummary:
     ) -> None:
         marketplace.set_catalog(sample_offerings)
         summary = marketplace.get_sales_summary()
-        assert set(summary.keys()) == {"ICE", "EV"}
+        expected_keys = {o.offering_id for o in sample_offerings}
+        assert set(summary.keys()) == expected_keys
 
     def test_summary_returns_sales_records(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
@@ -162,17 +163,17 @@ class TestSalesSummary:
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
     ) -> None:
         marketplace.set_catalog(sample_offerings)
-        marketplace.attempt_purchase("ICE")
-        marketplace.attempt_purchase("ICE")
-        marketplace.attempt_purchase("EV")
+        marketplace.attempt_purchase("LegacyAutomaker_ICE")
+        marketplace.attempt_purchase("LegacyAutomaker_ICE")
+        marketplace.attempt_purchase("LegacyAutomaker_EV")
         assert marketplace.get_total_units_sold() == 3
 
     def test_total_revenue(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
     ) -> None:
         marketplace.set_catalog(sample_offerings)
-        marketplace.attempt_purchase("ICE")
-        marketplace.attempt_purchase("EV")
+        marketplace.attempt_purchase("LegacyAutomaker_ICE")
+        marketplace.attempt_purchase("LegacyAutomaker_EV")
         expected = 32_000 + 42_000
         assert marketplace.get_total_revenue() == pytest.approx(expected)
 

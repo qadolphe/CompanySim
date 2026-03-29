@@ -33,14 +33,14 @@ def env_2024() -> PolicySnapshot:
         electricity_price_per_kwh=0.14,
         interest_rate=0.07,
         emissions_penalty_per_unit=0.0,
-        cafe_ev_mandate_pct=0.10,
+        cafe_ev_mandate_pct=0.10, charging_infrastructure_index=0.1,
     )
 
 
 @pytest.fixture
 def ice_offering() -> dict:
     return {
-        "product_type": "ICE",
+        "offering_id": "LegacyAutomaker_ICE", "product_type": "ICE",
         "msrp": 32_000,
         "mpg": 30.0,
         "range_mi": 400,
@@ -52,7 +52,7 @@ def ice_offering() -> dict:
 @pytest.fixture
 def ev_offering() -> dict:
     return {
-        "product_type": "EV",
+        "offering_id": "LegacyAutomaker_EV", "product_type": "EV",
         "msrp": 42_000,
         "mpg": None,
         "range_mi": 300,
@@ -64,7 +64,7 @@ def ev_offering() -> dict:
 @pytest.fixture
 def hybrid_offering() -> dict:
     return {
-        "product_type": "HYBRID",
+        "offering_id": "LegacyAutomaker_HYBRID", "product_type": "HYBRID",
         "msrp": 35_000,
         "mpg": 50.0,
         "range_mi": 550,
@@ -135,7 +135,7 @@ class TestDirectionalLogic:
         env_no_credit = PolicySnapshot(
             year=2030, ev_tax_credit=0, gas_price_per_gallon=3.50,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
         u_ice = calc.compute(profile, ice_offering, env_no_credit)
         u_ev = calc.compute(profile, ev_offering, env_no_credit)
@@ -153,12 +153,12 @@ class TestDirectionalLogic:
         env_low_gas = PolicySnapshot(
             year=2024, ev_tax_credit=7500, gas_price_per_gallon=2.50,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
         env_high_gas = PolicySnapshot(
             year=2030, ev_tax_credit=7500, gas_price_per_gallon=6.00,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
 
         # Utility gap should narrow or flip with expensive gas
@@ -184,12 +184,12 @@ class TestDirectionalLogic:
         env_low = PolicySnapshot(
             year=2030, ev_tax_credit=0, gas_price_per_gallon=3.50,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
         env_high = PolicySnapshot(
             year=2030, ev_tax_credit=10_000, gas_price_per_gallon=3.50,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
 
         u_low = calc.compute(profile, ev_offering, env_low)
@@ -238,9 +238,9 @@ class TestRangeAnxiety:
         env = PolicySnapshot(
             year=2024, ev_tax_credit=0, gas_price_per_gallon=3.5,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
-        ice = {"product_type": "ICE", "msrp": 32000, "mpg": 30,
+        ice = {"offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 32000, "mpg": 30,
                "range_mi": 50, "annual_maintenance": 1200, "kwh_per_mile": None}
         # Even with tiny range, ICE shouldn't be penalized
         u = calc.compute(profile, ice, env)
@@ -253,7 +253,7 @@ class TestRangeAnxiety:
     ) -> None:
         """EV with 300mi range should have no anxiety for a 10mi/day commuter."""
         profile = _make_profile(annual_commute_miles=2_500)  # ~10mi/day
-        ev = {"product_type": "EV", "msrp": 42000, "mpg": None,
+        ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42000, "mpg": None,
               "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
         # Compute directly
         anxiety = VehicleUtilityCalculator._compute_range_anxiety(profile, ev)
@@ -267,7 +267,7 @@ class TestRangeAnxiety:
         """EV with 300mi range should trigger anxiety for a 200mi/day commuter.
         Required range = 200 × 2.5 = 500mi > 300mi → anxiety."""
         profile = _make_profile(annual_commute_miles=50_000)  # ~200mi/day
-        ev = {"product_type": "EV", "msrp": 42000, "mpg": None,
+        ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42000, "mpg": None,
               "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
         anxiety = VehicleUtilityCalculator._compute_range_anxiety(profile, ev)
         assert anxiety > 0.0
@@ -300,12 +300,12 @@ class TestTCO:
         env_no_credit = PolicySnapshot(
             year=2024, ev_tax_credit=0, gas_price_per_gallon=3.5,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
         env_with_credit = PolicySnapshot(
             year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.5,
             electricity_price_per_kwh=0.14, interest_rate=0.07,
-            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
         )
         tco_no = calc._compute_tco(profile, ev_offering, env_no_credit)
         tco_with = calc._compute_tco(profile, ev_offering, env_with_credit)
@@ -319,9 +319,9 @@ class TestTCO:
     ) -> None:
         """Annual fuel cost for EV should be lower than ICE at current prices."""
         profile = _make_profile(annual_commute_miles=12_000)
-        ice = {"product_type": "ICE", "msrp": 32000, "mpg": 30,
+        ice = {"offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 32000, "mpg": 30,
                "range_mi": 400, "annual_maintenance": 1200, "kwh_per_mile": None}
-        ev = {"product_type": "EV", "msrp": 42000, "mpg": None,
+        ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42000, "mpg": None,
               "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
         fuel_ice = VehicleUtilityCalculator._annual_fuel_cost(
             profile, ice, env_2024
@@ -330,3 +330,44 @@ class TestTCO:
             profile, ev, env_2024
         )
         assert fuel_ev < fuel_ice
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Ownership Hassle Tests
+# ═══════════════════════════════════════════════════════════════════
+
+class TestOwnershipHassle:
+    """Tests for the EV ownership hassle penalty."""
+
+    def test_homeowner_has_lower_hassle_than_renter(self, env_2024: PolicySnapshot) -> None:
+        """A homeowner should have significantly lower hassle than a renter with identical stats."""
+        from domain.consumer.utility import VehicleUtilityCalculator
+        homeowner = _make_profile(is_homeowner=True, annual_income=60_000)
+        renter = _make_profile(is_homeowner=False, annual_income=60_000)
+        
+        h_home = VehicleUtilityCalculator._compute_ownership_hassle(homeowner, env_2024)
+        h_rent = VehicleUtilityCalculator._compute_ownership_hassle(renter, env_2024)
+        
+        assert h_home < h_rent
+
+    def test_high_income_renter_has_lower_hassle_than_low_income_renter(self, env_2024: PolicySnapshot) -> None:
+        """Higher income for renters mitigates some friction (can afford paid charging)."""
+        from domain.consumer.utility import VehicleUtilityCalculator
+        rich_renter = _make_profile(is_homeowner=False, annual_income=100_000)
+        poor_renter = _make_profile(is_homeowner=False, annual_income=30_000)
+        
+        h_rich = VehicleUtilityCalculator._compute_ownership_hassle(rich_renter, env_2024)
+        h_poor = VehicleUtilityCalculator._compute_ownership_hassle(poor_renter, env_2024)
+        
+        assert h_rich < h_poor
+
+    def test_long_commute_increases_hassle(self, env_2024: PolicySnapshot) -> None:
+        """Longer commutes mean more frequent charging, increasing the hassle penalty."""
+        from domain.consumer.utility import VehicleUtilityCalculator
+        short_commute = _make_profile(is_homeowner=False, annual_commute_miles=5_000)
+        long_commute = _make_profile(is_homeowner=False, annual_commute_miles=20_000)
+        
+        h_short = VehicleUtilityCalculator._compute_ownership_hassle(short_commute, env_2024)
+        h_long = VehicleUtilityCalculator._compute_ownership_hassle(long_commute, env_2024)
+        
+        assert h_short < h_long

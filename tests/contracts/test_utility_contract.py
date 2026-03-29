@@ -39,14 +39,14 @@ def sample_env() -> PolicySnapshot:
     return PolicySnapshot(
         year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.50,
         electricity_price_per_kwh=0.14, interest_rate=0.07,
-        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1,
+        emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.1,
     )
 
 
 @pytest.fixture
 def sample_offering() -> dict:
     return {
-        "product_type": "ICE", "msrp": 32_000, "mpg": 30,
+        "offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 32_000, "mpg": 30,
         "range_mi": 400, "annual_maintenance": 1200, "kwh_per_mile": None,
     }
 
@@ -91,9 +91,9 @@ class TestUtilityCalculatorContract:
         sample_env: PolicySnapshot,
     ) -> None:
         """Two meaningfully different offerings should yield different scores."""
-        cheap = {"product_type": "ICE", "msrp": 20_000, "mpg": 35,
+        cheap = {"offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 20_000, "mpg": 35,
                  "range_mi": 500, "annual_maintenance": 800, "kwh_per_mile": None}
-        expensive = {"product_type": "ICE", "msrp": 80_000, "mpg": 15,
+        expensive = {"offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 80_000, "mpg": 15,
                      "range_mi": 300, "annual_maintenance": 2500, "kwh_per_mile": None}
         u_cheap = utility_calc.compute(sample_profile, cheap, sample_env)
         u_expensive = utility_calc.compute(sample_profile, expensive, sample_env)

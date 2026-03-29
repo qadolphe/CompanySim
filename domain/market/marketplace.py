@@ -34,9 +34,9 @@ class Marketplace:
         Replace the catalog with new offerings for this tick.
         Resets all sales counters.
         """
-        self._catalog = {o.product_type: o for o in offerings}
-        self._sales_count = {o.product_type: 0 for o in offerings}
-        self._sales_revenue = {o.product_type: 0.0 for o in offerings}
+        self._catalog = {o.offering_id: o for o in offerings}
+        self._sales_count = {o.offering_id: 0 for o in offerings}
+        self._sales_revenue = {o.offering_id: 0.0 for o in offerings}
 
     # ── Consumer Interface ──
 
@@ -47,38 +47,57 @@ class Marketplace:
         """
         return [o.to_consumer_view() for o in self._catalog.values()]
 
-    def attempt_purchase(self, product_type: str) -> bool:
+    def attempt_purchase(self, offering_id: str) -> bool:
         """
-        Consumer attempts to purchase a product by type.
+        Consumer attempts to purchase a product by offering_id.
         Returns True if successful (units remain), False otherwise.
         Decrements inventory and records the sale.
         """
-        offering = self._catalog.get(product_type)
+        offering = self._catalog.get(offering_id)
         if offering is None:
             return False
         if offering.units_available <= 0:
             return False
 
         offering.decrement_inventory()
-        self._sales_count[product_type] += 1
-        self._sales_revenue[product_type] += offering.price
+        self._sales_count[offering_id] += 1
+        self._sales_revenue[offering_id] += offering.price
         return True
 
     # ── Reporting Interface ──
 
     def get_sales_summary(self) -> dict[str, SalesRecord]:
         """
-        Returns aggregate sales results keyed by product type.
+        Returns aggregate sales results keyed by offering_id.
         This is what the producer reads to adjust strategy.
         """
         return {
-            ptype: SalesRecord(
-                product_type=ptype,
-                units_sold=self._sales_count.get(ptype, 0),
-                revenue=self._sales_revenue.get(ptype, 0.0),
+            off_id: SalesRecord(
+                offering_id=off_id,
+                product_type=self._catalog[off_id].product_type,
+                units_sold=self._sales_count.get(off_id, 0),
+                revenue=self._sales_revenue.get(off_id, 0.0),
             )
-            for ptype in self._catalog
+            for off_id in self._catalog
         }
+
+    def get_firm_sales_summary(self, producer_id: str) -> dict[str, SalesRecord]:
+        """
+        Returns sales results for a specific firm, keyed by product_type.
+        This allows Producer agents to remain ignorant of 'offering_id'
+        and just look at their own 'EV' or 'ICE' sales.
+        """
+        firm_sales = {}
+        for off_id, o in self._catalog.items():
+            if o.producer_id == producer_id:
+                sales_record = SalesRecord(
+                    offering_id=off_id,
+                    product_type=o.product_type,
+                    units_sold=self._sales_count.get(off_id, 0),
+                    revenue=self._sales_revenue.get(off_id, 0.0),
+                )
+                firm_sales[o.product_type] = sales_record
+        return firm_sales
 
     def get_total_units_sold(self) -> int:
         """Total units sold across all product types this tick."""
@@ -90,5 +109,5 @@ class Marketplace:
 
     @property
     def product_types(self) -> list[str]:
-        """List of product types currently in the catalog."""
-        return list(self._catalog.keys())
+        """List of unique product types currently in the catalog."""
+        return list({o.product_type for o in self._catalog.values()})
