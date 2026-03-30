@@ -25,6 +25,8 @@ from simulation.config import (
     EV_COGS_LEARNING_RATE,
     EV_COGS_REFERENCE_UNITS,
     EV_BATTERY_DECLINE_TO_2030,
+    GLOBAL_EV_MSRP_PASS_THROUGH,
+    GLOBAL_EV_MSRP_MIN_FACTOR,
     EV_RND_COGS_REDUCTION,
     DEFAULT_VEHICLE_CATALOG,
     DRIVETRAINS,
@@ -44,6 +46,10 @@ from simulation.config import (
     DEPRECIATION_RATE,
     CORPORATE_TAX_RATE,
     STARTUP_FUNDING_ROUNDS,
+    STARTUP_VC_TRIGGER_CAPITAL,
+    STARTUP_VC_RAISE_AMOUNT,
+    STARTUP_MAX_VC_RAISES,
+    STARTUP_DILUTION_PER_RAISE,
     START_YEAR,
 )
 from domain.environment.service import EnvironmentService
@@ -80,6 +86,12 @@ def _compute_dynamic_ev_cogs_pct(
     cogs_pct = base * battery_factor * volume_factor * infra_factor
     cogs_pct -= milestones * EV_RND_COGS_REDUCTION
     return max(EV_COGS_MIN, min(EV_COGS_MAX, cogs_pct))
+
+
+def _global_ev_msrp_factor(env: PolicySnapshot) -> float:
+    """Exogenous global battery curve pass-through to EV MSRP."""
+    factor = env.battery_cost_index ** GLOBAL_EV_MSRP_PASS_THROUGH
+    return max(GLOBAL_EV_MSRP_MIN_FACTOR, min(1.0, factor))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -148,9 +160,12 @@ class LegacyAutomaker(ProducerAgent):
         self, env: PolicySnapshot
     ) -> list[ProductOffering]:
         offerings: list[VehicleOffering] = []
+        global_ev_factor = _global_ev_msrp_factor(env)
         for dt in DRIVETRAINS:
             base = self._base_catalog[dt]
             msrp = base["msrp"] * (1.0 - self._msrp_reductions[dt])
+            if dt == "EV":
+                msrp *= global_ev_factor
             range_mi = base["range_mi"] + self._range_bonuses.get(dt, 0.0)
             offerings.append(VehicleOffering(
                 drivetrain=dt,
@@ -321,13 +336,17 @@ class PureEVStartup(ProducerAgent):
         self._range_bonus = 0.0
         self._last_sales: dict[str, SalesRecord] | None = None
         self._last_stmt: AnnualFinancials | None = None
+        self._vc_raises_used: int = 0
+        self._total_dilution: float = 0.0
 
     def generate_offerings(
         self, env: PolicySnapshot
     ) -> list[ProductOffering]:
         if self.is_bankrupt:
             return []
+        global_ev_factor = _global_ev_msrp_factor(env)
         msrp = self._base_spec["msrp"] * (1.0 - self._msrp_reduction)
+        msrp *= global_ev_factor
         range_mi = self._base_spec["range_mi"] + self._range_bonus
         offering = VehicleOffering(
             drivetrain="EV",
@@ -399,12 +418,25 @@ class PureEVStartup(ProducerAgent):
         stmt = self.ledger.close_year(env.year, CORPORATE_TAX_RATE, DEPRECIATION_RATE)
         self._last_stmt = stmt
 
-        # ── 7. Bankruptcy check ──
+        # ── 7. Valley-of-death VC bridge raises ──
+        self.raise_capital_if_needed(env.year)
+
+        # ── 8. Bankruptcy check ──
         has_future_funding = any(
             v > 0 for (s, e), v in STARTUP_FUNDING_ROUNDS.items() if e > env.year
         )
         if self.ledger.capital < 0 and not has_future_funding:
             self.is_bankrupt = True
+
+    def raise_capital_if_needed(self, year: int) -> None:
+        """Raise exogenous VC when cash gets critically low."""
+        if self._vc_raises_used >= STARTUP_MAX_VC_RAISES:
+            return
+        if self.ledger.capital >= STARTUP_VC_TRIGGER_CAPITAL:
+            return
+        self.ledger.record_funding(STARTUP_VC_RAISE_AMOUNT)
+        self._vc_raises_used += 1
+        self._total_dilution += STARTUP_DILUTION_PER_RAISE
 
     @staticmethod
     def _get_funding(year: int) -> float:
@@ -456,5 +488,8 @@ class PureEVStartup(ProducerAgent):
             "milestones_achieved": dict(self.pipeline.milestones_achieved),
             "msrp_reductions": {"EV": self._msrp_reduction},
             "range_bonuses": {"EV": self._range_bonus},
+            "vc_funding_raised": self.ledger.cumulative_external_funding,
+            "vc_raises_used": self._vc_raises_used,
+            "total_dilution": self._total_dilution,
             "financials": self.ledger.to_dict(),
         }

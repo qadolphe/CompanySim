@@ -25,6 +25,7 @@ class PolicySnapshot:
     emissions_penalty_per_unit: float
     cafe_ev_mandate_pct: float
     charging_infrastructure_index: float
+    battery_cost_index: float = 1.0
 
     def to_dict(self) -> dict:
         """Convert to plain dict for logging and serialization."""
@@ -37,4 +38,5 @@ class PolicySnapshot:
             "emissions_penalty_per_unit": self.emissions_penalty_per_unit,
             "cafe_ev_mandate_pct": self.cafe_ev_mandate_pct,
             "charging_infrastructure_index": self.charging_infrastructure_index,
+            "battery_cost_index": self.battery_cost_index,
         }

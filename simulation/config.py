@@ -55,17 +55,17 @@ DRIVETRAINS: list[str] = ["ICE", "HYBRID", "EV"]
 
 DEFAULT_VEHICLE_CATALOG: dict = {
     "ICE": {
-        "msrp": 35_000,
+        "msrp": 40_000,
         "mpg": 28.0,
         "range_mi": 420.0,
         "annual_maintenance": 1_400.0,
         "kwh_per_mile": None,
     },
     "HYBRID": {
-        "msrp": 38_500,
+        "msrp": 42_500,
         "mpg": 48.0,
         "range_mi": 600.0,
-        "annual_maintenance": 1_100.0,
+        "annual_maintenance": 1_700.0,
         "kwh_per_mile": None,
     },
     "EV": {
@@ -110,6 +110,12 @@ UTILITY_BETA_MAX: float = 0.3
 UTILITY_GAMMA_MAX: float = 0.5
 UTILITY_RANGE_ANXIETY_THRESHOLD: float = 2.5
 
+# Severe early-year EV friction parameters
+UTILITY_INFRA_CONVEXITY: float = 2.4
+UTILITY_EARLY_YEARS_AMPLIFIER: float = 1.2
+UTILITY_EARLY_DECAY_YEARS: float = 4.0
+UTILITY_DEMOGRAPHIC_SHIELD_MAX: float = 0.75
+
 # ── Ownership Hassle (EV charging difficulty) ──
 UTILITY_DELTA_MAX: float = 0.4
 HOMEOWNER_INCOME_THRESHOLD: float = 75_000.0
@@ -140,6 +146,13 @@ EV_COGS_MAX: float = 1.35
 EV_COGS_LEARNING_RATE: float = 0.18
 EV_COGS_REFERENCE_UNITS: int = 10_000
 EV_BATTERY_DECLINE_TO_2030: float = 0.30
+
+# Exogenous global battery curve (independent of firm-level sales/R&D)
+BATTERY_COST_INDEX_START: float = 1.00
+BATTERY_COST_INDEX_FLOOR: float = 0.52
+BATTERY_COST_DECAY_RATE: float = 0.11
+GLOBAL_EV_MSRP_PASS_THROUGH: float = 0.85
+GLOBAL_EV_MSRP_MIN_FACTOR: float = 0.58
 
 # Keep legacy milestone-based reduction constant for backward compatibility
 EV_RND_COGS_REDUCTION: float = 0.04
@@ -191,6 +204,12 @@ STARTUP_FUNDING_ROUNDS: dict[tuple[int, int], float] = {
     (2028, 2029): 100_000_000.0,    # Bridge round (conditional on survival)
     (2030, 2035): 0.0,              # Must be self-sustaining
 }
+
+# Startup valley-of-death bridge raises (VC injections)
+STARTUP_VC_TRIGGER_CAPITAL: float = 300_000_000.0
+STARTUP_VC_RAISE_AMOUNT: float = 2_000_000_000.0
+STARTUP_MAX_VC_RAISES: int = 3
+STARTUP_DILUTION_PER_RAISE: float = 0.18
 
 
 # ═══════════════════════════════════════════════════════════════════

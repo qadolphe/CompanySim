@@ -121,6 +121,8 @@ class SimulationLog:
             prefix = firm_name.lower()
             row[f"{prefix}_capital"] = state.get("capital", 0)
             row[f"{prefix}_total_capacity"] = state.get("total_capacity", 0)
+            row[f"{prefix}_vc_funding_raised"] = state.get("vc_funding_raised", 0)
+            row[f"{prefix}_total_dilution"] = state.get("total_dilution", 0)
 
             capacity = state.get("capacity", {})
             for ptype, cap in capacity.items():

@@ -73,6 +73,7 @@ class EnvironmentService:
             emissions_penalty_per_unit=self._emissions_penalty(),
             cafe_ev_mandate_pct=self._cafe_ev_mandate(),
             charging_infrastructure_index=self._charging_infrastructure_index(),
+            battery_cost_index=self._battery_cost_index(),
         )
 
     # ── Private: Schedule Lookups ──
@@ -121,3 +122,11 @@ class EnvironmentService:
         return cfg.ELECTRICITY_PRICE_BASE * (
             (1.0 + cfg.ELECTRICITY_PRICE_ANNUAL_GROWTH) ** years_elapsed
         )
+
+    def _battery_cost_index(self) -> float:
+        """Global battery cost curve proxy (exogenous learning over time)."""
+        years_elapsed = self._current_year - self._start_year
+        start = cfg.BATTERY_COST_INDEX_START
+        floor = cfg.BATTERY_COST_INDEX_FLOOR
+        decay = cfg.BATTERY_COST_DECAY_RATE
+        return floor + (start - floor) * ((1.0 - decay) ** years_elapsed)

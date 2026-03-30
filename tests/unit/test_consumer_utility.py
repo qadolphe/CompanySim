@@ -256,7 +256,7 @@ class TestRangeAnxiety:
         ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42000, "mpg": None,
               "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
         # Compute directly
-        anxiety = VehicleUtilityCalculator._compute_range_anxiety(profile, ev)
+        anxiety = VehicleUtilityCalculator._compute_range_anxiety(profile, ev, env_2024)
         assert anxiety == 0.0
 
     def test_long_commute_causes_range_anxiety_for_ev(
@@ -269,7 +269,7 @@ class TestRangeAnxiety:
         profile = _make_profile(annual_commute_miles=50_000)  # ~200mi/day
         ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42000, "mpg": None,
               "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
-        anxiety = VehicleUtilityCalculator._compute_range_anxiety(profile, ev)
+        anxiety = VehicleUtilityCalculator._compute_range_anxiety(profile, ev, env_2024)
         assert anxiety > 0.0
 
 

@@ -8,6 +8,7 @@ VehicleUtilityCalculator implementation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import math
 
 from domain.consumer.models import ConsumerProfile
 from domain.environment.models import PolicySnapshot
@@ -20,6 +21,13 @@ from simulation.config import (
     UTILITY_DELTA_MAX,
     UTILITY_RANGE_ANXIETY_THRESHOLD,
     HOMEOWNER_INCOME_THRESHOLD,
+    INCOME_MEAN,
+    INCOME_STD,
+    START_YEAR,
+    UTILITY_INFRA_CONVEXITY,
+    UTILITY_EARLY_YEARS_AMPLIFIER,
+    UTILITY_EARLY_DECAY_YEARS,
+    UTILITY_DEMOGRAPHIC_SHIELD_MAX,
 )
 
 
@@ -97,7 +105,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
         # ── Range anxiety (only for EVs) ──
         range_anxiety = 0.0
         if offering["product_type"] == "EV":
-            range_anxiety = self._compute_range_anxiety(profile, offering)
+            range_anxiety = self._compute_range_anxiety(profile, offering, env)
 
         # ── Ownership hassle (only for EVs) ──
         ownership_hassle = 0.0
@@ -164,6 +172,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
     def _compute_range_anxiety(
         profile: ConsumerProfile,
         offering: dict,
+        env: PolicySnapshot,
     ) -> float:
         """
         Range anxiety penalty for EVs.
@@ -173,7 +182,8 @@ class VehicleUtilityCalculator(UtilityCalculator):
         """
         range_mi = offering.get("range_mi", 0.0)
         daily_commute = profile.daily_commute_miles
-        required_range = daily_commute * UTILITY_RANGE_ANXIETY_THRESHOLD
+        infra_shortfall = max(0.0, 1.0 - env.charging_infrastructure_index)
+        required_range = daily_commute * UTILITY_RANGE_ANXIETY_THRESHOLD * (1.0 + 1.8 * infra_shortfall)
 
         if required_range <= 0:
             return 0.0
@@ -182,7 +192,19 @@ class VehicleUtilityCalculator(UtilityCalculator):
         if ratio >= 1.0:
             return 0.0
 
-        return (1.0 - ratio) * UTILITY_GAMMA_MAX
+        shortfall = 1.0 - ratio
+        years_elapsed = max(0, env.year - START_YEAR)
+        early_multiplier = 1.0 + UTILITY_EARLY_YEARS_AMPLIFIER * math.exp(
+            -years_elapsed / max(1.0, UTILITY_EARLY_DECAY_YEARS)
+        )
+
+        income_z = (profile.annual_income - INCOME_MEAN) / max(1.0, INCOME_STD)
+        homeowner_boost = 1.2 if profile.is_homeowner else -0.3
+        shield_raw = 1.0 / (1.0 + math.exp(-(1.1 * income_z + homeowner_boost)))
+        shield = min(UTILITY_DEMOGRAPHIC_SHIELD_MAX, shield_raw)
+
+        penalty = shortfall * UTILITY_GAMMA_MAX * early_multiplier * (1.0 - shield)
+        return max(0.0, penalty)
 
     @staticmethod
     def _compute_ownership_hassle(
@@ -201,34 +223,36 @@ class VehicleUtilityCalculator(UtilityCalculator):
 
         Returns a float penalty in [0, DELTA_MAX].
         """
-        # Base hassle score: 0.0 (no friction) to 1.0 (maximum friction)
+        # Base hassle score before infrastructure scaling.
         if profile.is_homeowner:
-            # Homeowners have a charger — minimal hassle
-            # But lower income homeowners may have older electrical panels,
-            # so give them a small residual hassle.
             income_factor = min(
                 profile.annual_income / HOMEOWNER_INCOME_THRESHOLD, 1.0
             )
-            base_hassle = 0.1 * (1.0 - income_factor)  # 0.0 – 0.1
+            base_hassle = 0.16 * (1.0 - income_factor)
         else:
-            # Non-homeowners: significant friction
-            # Higher income somewhat mitigates (premium apartments with
-            # chargers, can afford paid fast-charging memberships)
             income_factor = min(
                 profile.annual_income / HOMEOWNER_INCOME_THRESHOLD, 1.0
             )
-            base_hassle = 0.9 - 0.4 * income_factor  # 0.5 – 0.9
+            base_hassle = 1.2 - 0.5 * income_factor
 
-        # Commute intensity amplifier: longer commutes → more charging
-        # sessions → more friction. Normalized around 30mi (average).
         commute_avg = 30.0  # miles
         commute_factor = min(
             profile.daily_commute_miles / commute_avg, 2.0
         )
-        # Short commuters (<30mi) care less; long commuters care more
-        intensity = 0.5 + 0.5 * commute_factor  # range: 0.5 – 1.5
+        intensity = 0.6 + 0.8 * commute_factor  # range: 0.6 – 2.2
 
-        # As infrastructure improves (index approaches 1.0), hassle drops to 0
-        infrastructure_multiplier = 1.0 - env.charging_infrastructure_index
+        infra_shortfall = max(0.0, 1.0 - env.charging_infrastructure_index)
+        infrastructure_multiplier = infra_shortfall ** UTILITY_INFRA_CONVEXITY
 
-        return min(base_hassle * intensity, 1.0) * UTILITY_DELTA_MAX * infrastructure_multiplier
+        years_elapsed = max(0, env.year - START_YEAR)
+        early_multiplier = 1.0 + UTILITY_EARLY_YEARS_AMPLIFIER * math.exp(
+            -years_elapsed / max(1.0, UTILITY_EARLY_DECAY_YEARS)
+        )
+
+        income_z = (profile.annual_income - INCOME_MEAN) / max(1.0, INCOME_STD)
+        homeowner_boost = 1.3 if profile.is_homeowner else -0.4
+        relief_raw = 1.0 / (1.0 + math.exp(-(1.1 * income_z + homeowner_boost)))
+        relief = min(UTILITY_DEMOGRAPHIC_SHIELD_MAX, relief_raw)
+
+        raw = min(base_hassle * intensity, 1.8) * infrastructure_multiplier
+        return raw * UTILITY_DELTA_MAX * early_multiplier * (1.0 - relief)

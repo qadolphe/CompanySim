@@ -145,6 +145,7 @@ class SimulationEngine:
             "emissions_penalty_per_unit": env_snapshot.emissions_penalty_per_unit,
             "cafe_ev_mandate_pct": env_snapshot.cafe_ev_mandate_pct,
             "charging_infrastructure_index": env_snapshot.charging_infrastructure_index,
+            "battery_cost_index": env_snapshot.battery_cost_index,
             # ── Legacy Automaker ──
             "legacy_capital": legacy_state.get("capital", 0),
             "legacy_revenue": legacy_state.get("revenue", 0),
@@ -159,6 +160,8 @@ class SimulationEngine:
             "startup_fcf": startup_state.get("fcf", 0),
             "startup_is_bankrupt": startup_state.get("is_bankrupt", False),
             "startup_ev_cogs_pct": startup_state.get("ev_cogs_pct", 0),
+            "startup_vc_funding_raised": startup_state.get("vc_funding_raised", 0),
+            "startup_total_dilution": startup_state.get("total_dilution", 0),
         }
         micro_state = [c.profile.to_micro_dict() for c in self.population]
         events_dicts = [e.to_dict() for e in tick_events]

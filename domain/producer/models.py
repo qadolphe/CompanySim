@@ -126,6 +126,7 @@ class CapitalLedger:
     cumulative_r_and_d: float = 0.0
     cumulative_retooling: float = 0.0
     cumulative_units_by_dt: dict[str, int] = field(default_factory=dict)
+    cumulative_external_funding: float = 0.0
 
     def record_sale(
         self,
@@ -167,6 +168,7 @@ class CapitalLedger:
         """Record external equity funding."""
         self.capital += amount
         self._tick_external_funding += amount
+        self.cumulative_external_funding += amount
 
     def close_year(self, year: int, tax_rate: float, depreciation_rate: float) -> AnnualFinancials:
         """Freeze the tick into an AnnualFinancials, compute taxes, reset accumulators."""
@@ -231,6 +233,7 @@ class CapitalLedger:
             "cumulative_r_and_d": self.cumulative_r_and_d,
             "cumulative_retooling": self.cumulative_retooling,
             "cumulative_units_by_dt": dict(self.cumulative_units_by_dt),
+            "cumulative_external_funding": self.cumulative_external_funding,
         }
 
 

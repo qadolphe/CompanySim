@@ -13,6 +13,19 @@ import matplotlib.ticker as mticker
 import seaborn as sns
 import pandas as pd
 
+from domain.consumer.models import ConsumerProfile
+from domain.consumer.utility import VehicleUtilityCalculator
+from domain.environment.service import EnvironmentService
+from simulation.config import (
+    START_YEAR,
+    END_YEAR,
+    DEFAULT_VEHICLE_CATALOG,
+    EV_COGS_LEARNING_RATE,
+    EV_COGS_REFERENCE_UNITS,
+    GLOBAL_EV_MSRP_PASS_THROUGH,
+    BATTERY_COST_INDEX_START,
+)
+
 
 # ── Style Configuration ──
 sns.set_theme(style="darkgrid")
@@ -262,6 +275,129 @@ class SimulationVisualizer:
 
         return fig or ax.get_figure()
 
+    def plot_wrights_law_explainer(self, ax: plt.Axes | None = None) -> plt.Figure:
+        """Explainer chart: battery curve, exogenous MSRP factor, and Wright's-law volume factor."""
+        fig = None
+        if ax is None:
+            fig, ax = plt.subplots(figsize=FIG_SIZE)
+
+        years = list(range(START_YEAR, END_YEAR + 1))
+        env = EnvironmentService(START_YEAR, END_YEAR)
+        battery_index = []
+        exogenous_msrp_factor = []
+
+        for _ in years:
+            snap = env.snapshot()
+            battery_index.append(snap.battery_cost_index)
+            exogenous_msrp_factor.append(snap.battery_cost_index ** GLOBAL_EV_MSRP_PASS_THROUGH)
+            if not env.is_complete:
+                env.tick()
+
+        # Wright's-law component (unit scale curve)
+        doubling_counts = list(range(0, 9))
+        wright_factor = [(1.0 - EV_COGS_LEARNING_RATE) ** d for d in doubling_counts]
+
+        ax.plot(years, battery_index, color="#3b82f6", linewidth=2.5, marker="o", label="Global Battery Cost Index")
+        ax.plot(years, exogenous_msrp_factor, color="#16a34a", linewidth=2.5, marker="s", label="Exogenous EV MSRP Factor")
+        ax.set_title("Explainer: Exogenous Battery Curve and EV MSRP Drift", fontsize=14, fontweight="bold")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Index / Factor")
+        ax.set_ylim(0.45, 1.05)
+
+        ax2 = ax.twiny()
+        ax2.set_xlim(ax.get_xlim())
+        # Place Wright's-law curve as annotations at right side for readability.
+        for d, factor in zip(doubling_counts, wright_factor):
+            if d in (0, 2, 4, 6, 8):
+                ax.text(years[-1] + 0.1, factor, f"Wright {d}x: {factor:.2f}", fontsize=8, color="#6b7280")
+
+        ax.legend(loc="upper right")
+        return fig or ax.get_figure()
+
+    def plot_utility_penalty_explainer(self, ax: plt.Axes | None = None) -> plt.Figure:
+        """Explainer chart: EV friction over time for contrasting consumer cohorts."""
+        fig = None
+        if ax is None:
+            fig, ax = plt.subplots(figsize=FIG_SIZE)
+
+        years = list(range(START_YEAR, END_YEAR + 1))
+        util = VehicleUtilityCalculator()
+        env = EnvironmentService(START_YEAR, END_YEAR)
+
+        ev_offering = {
+            "offering_id": "Explainer_EV",
+            "product_type": "EV",
+            "msrp": DEFAULT_VEHICLE_CATALOG["EV"]["msrp"],
+            "mpg": None,
+            "range_mi": DEFAULT_VEHICLE_CATALOG["EV"]["range_mi"],
+            "annual_maintenance": DEFAULT_VEHICLE_CATALOG["EV"]["annual_maintenance"],
+            "kwh_per_mile": DEFAULT_VEHICLE_CATALOG["EV"]["kwh_per_mile"],
+        }
+
+        high_income_homeowner = ConsumerProfile(
+            id=90001,
+            annual_income=150_000,
+            annual_commute_miles=8_000,
+            green_preference=0.7,
+            price_sensitivity=0.2,
+            is_homeowner=True,
+            current_vehicle="ICE",
+            years_owned=4,
+        )
+        lower_income_renter = ConsumerProfile(
+            id=90002,
+            annual_income=42_000,
+            annual_commute_miles=12_000,
+            green_preference=0.4,
+            price_sensitivity=0.8,
+            is_homeowner=False,
+            current_vehicle="ICE",
+            years_owned=4,
+        )
+
+        hi_penalties = []
+        lo_penalties = []
+        for _ in years:
+            snap = env.snapshot()
+            hi_pen = util._compute_range_anxiety(high_income_homeowner, ev_offering, snap) + util._compute_ownership_hassle(high_income_homeowner, snap)
+            lo_pen = util._compute_range_anxiety(lower_income_renter, ev_offering, snap) + util._compute_ownership_hassle(lower_income_renter, snap)
+            hi_penalties.append(hi_pen)
+            lo_penalties.append(lo_pen)
+            if not env.is_complete:
+                env.tick()
+
+        ax.plot(years, hi_penalties, color="#0ea5e9", linewidth=2.5, marker="o", label="High-income Homeowner EV Penalty")
+        ax.plot(years, lo_penalties, color="#ef4444", linewidth=2.5, marker="s", label="Lower-income Renter EV Penalty")
+        ax.fill_between(years, lo_penalties, hi_penalties, color="#fca5a5", alpha=0.15)
+
+        ax.set_title("Explainer: EV Utility Friction by Demographic Cohort", fontsize=14, fontweight="bold")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Penalty Magnitude (utility points)")
+        ax.legend(loc="upper right")
+
+        return fig or ax.get_figure()
+
+    def plot_startup_valley_of_death(self, ax: plt.Axes | None = None) -> plt.Figure:
+        """Explainer chart: startup capital versus cumulative VC funding and dilution."""
+        fig = None
+        if ax is None:
+            fig, ax = plt.subplots(figsize=FIG_SIZE)
+
+        if "pureevstartup_capital" in self.df.columns:
+            capital = self.df["pureevstartup_capital"] / 1e9
+            ax.plot(self.df.index, capital, color="#111827", linewidth=2.5, marker="o", label="Startup Capital ($B)")
+
+        if "pureevstartup_vc_funding_raised" in self.df.columns:
+            vc = self.df["pureevstartup_vc_funding_raised"] / 1e9
+            ax.plot(self.df.index, vc, color="#a855f7", linewidth=2.0, linestyle="--", marker="s", label="Cumulative VC Raised ($B)")
+
+        ax.set_title("Explainer: Startup Valley-of-Death and VC Bridge", fontsize=14, fontweight="bold")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("$ Billions")
+        ax.legend(loc="upper right")
+
+        return fig or ax.get_figure()
+
     def export_all(self, output_dir: str = "output") -> None:
         """Save all plots as PNGs and export raw data as CSV."""
         Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -275,6 +411,9 @@ class SimulationVisualizer:
             "05_policy_environment": self.plot_policy_environment,
             "06_sales_volume": self.plot_sales_volume,
             "07_consumer_activity": self.plot_consumer_activity,
+            "08_explainer_wrights_battery_curve": self.plot_wrights_law_explainer,
+            "09_explainer_utility_penalty": self.plot_utility_penalty_explainer,
+            "10_explainer_startup_valley_of_death": self.plot_startup_valley_of_death,
         }
 
         for name, plot_fn in plots.items():

@@ -228,6 +228,7 @@ class TestPolicySnapshot:
             "emissions_penalty_per_unit",
             "cafe_ev_mandate_pct",
             "charging_infrastructure_index",
+            "battery_cost_index",
         }
         actual_fields = set(env_snapshot_2024.to_dict().keys())
         assert actual_fields == required_fields
@@ -240,6 +241,13 @@ class TestPolicySnapshot:
         assert d["ev_tax_credit"] == env_snapshot_2024.ev_tax_credit
         assert d["gas_price_per_gallon"] == env_snapshot_2024.gas_price_per_gallon
         assert d["interest_rate"] == env_snapshot_2024.interest_rate
+
+    def test_battery_cost_index_declines_over_time(
+        self, all_snapshots: list[PolicySnapshot]
+    ) -> None:
+        battery = [s.battery_cost_index for s in all_snapshots]
+        for i in range(1, len(battery)):
+            assert battery[i] <= battery[i - 1]
 
     def test_to_dict_returns_new_dict(
         self, env_snapshot_2024: PolicySnapshot
