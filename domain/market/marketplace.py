@@ -11,6 +11,7 @@ Each tick:
 from __future__ import annotations
 
 from domain.market.models import ProductOffering, SalesRecord
+from simulation.config import CONSUMER_MULTIPLIER
 
 
 class Marketplace:
@@ -60,8 +61,10 @@ class Marketplace:
             return False
 
         offering.decrement_inventory()
-        self._sales_count[offering_id] += 1
-        self._sales_revenue[offering_id] += offering.price
+        # Scale simulated consumer purchases to macro-equivalent demand once,
+        # at the market transaction boundary.
+        self._sales_count[offering_id] += CONSUMER_MULTIPLIER
+        self._sales_revenue[offering_id] += offering.price * CONSUMER_MULTIPLIER
         return True
 
     # ── Reporting Interface ──

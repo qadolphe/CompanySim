@@ -11,6 +11,7 @@ import pytest
 
 from domain.market.marketplace import Marketplace
 from domain.market.models import VehicleOffering, SalesRecord
+from simulation.config import CONSUMER_MULTIPLIER
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -98,7 +99,7 @@ class TestPurchases:
         marketplace.set_catalog(sample_offerings)
         marketplace.attempt_purchase("LegacyAutomaker_ICE")
         summary = marketplace.get_sales_summary()
-        assert summary["LegacyAutomaker_ICE"].units_sold == 1
+        assert summary["LegacyAutomaker_ICE"].units_sold == CONSUMER_MULTIPLIER
 
     def test_purchase_unknown_type_fails(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
@@ -134,7 +135,9 @@ class TestPurchases:
         marketplace.attempt_purchase("LegacyAutomaker_EV")
         marketplace.attempt_purchase("LegacyAutomaker_EV")
         summary = marketplace.get_sales_summary()
-        assert summary["LegacyAutomaker_EV"].revenue == pytest.approx(84_000.0)
+        assert summary["LegacyAutomaker_EV"].revenue == pytest.approx(
+            84_000.0 * CONSUMER_MULTIPLIER
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -166,7 +169,7 @@ class TestSalesSummary:
         marketplace.attempt_purchase("LegacyAutomaker_ICE")
         marketplace.attempt_purchase("LegacyAutomaker_ICE")
         marketplace.attempt_purchase("LegacyAutomaker_EV")
-        assert marketplace.get_total_units_sold() == 3
+        assert marketplace.get_total_units_sold() == 3 * CONSUMER_MULTIPLIER
 
     def test_total_revenue(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]
@@ -175,7 +178,7 @@ class TestSalesSummary:
         marketplace.attempt_purchase("LegacyAutomaker_ICE")
         marketplace.attempt_purchase("LegacyAutomaker_EV")
         expected = 32_000 + 42_000
-        assert marketplace.get_total_revenue() == pytest.approx(expected)
+        assert marketplace.get_total_revenue() == pytest.approx(expected * CONSUMER_MULTIPLIER)
 
     def test_zero_sales_summary(
         self, marketplace: Marketplace, sample_offerings: list[VehicleOffering]

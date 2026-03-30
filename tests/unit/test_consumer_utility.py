@@ -371,3 +371,47 @@ class TestOwnershipHassle:
         h_long = VehicleUtilityCalculator._compute_ownership_hassle(long_commute, env_2024)
         
         assert h_short < h_long
+
+    def test_very_low_infrastructure_has_super_linear_penalty(self) -> None:
+        """Infrastructure below the critical threshold should steepen EV ownership hassle."""
+        from domain.consumer.utility import VehicleUtilityCalculator
+
+        profile = _make_profile(is_homeowner=False, annual_income=55_000)
+        env_low = PolicySnapshot(
+            year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.5,
+            electricity_price_per_kwh=0.14, interest_rate=0.07,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.20,
+        )
+        env_mid = PolicySnapshot(
+            year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.5,
+            electricity_price_per_kwh=0.14, interest_rate=0.07,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=0.40,
+        )
+
+        h_low = VehicleUtilityCalculator._compute_ownership_hassle(profile, env_low)
+        h_mid = VehicleUtilityCalculator._compute_ownership_hassle(profile, env_mid)
+        assert h_low > h_mid
+
+
+class TestTechnologyInertia:
+    """Tests for incumbent technology familiarity bonus."""
+
+    def test_low_green_preference_gets_higher_ice_inertia_bonus(
+        self,
+        calc: VehicleUtilityCalculator,
+    ) -> None:
+        low_green = _make_profile(green_preference=0.0, price_sensitivity=0.5)
+        high_green = _make_profile(green_preference=1.0, price_sensitivity=0.5)
+        env = PolicySnapshot(
+            year=2024, ev_tax_credit=0, gas_price_per_gallon=3.5,
+            electricity_price_per_kwh=0.14, interest_rate=0.07,
+            emissions_penalty_per_unit=0, cafe_ev_mandate_pct=0.1, charging_infrastructure_index=1.0,
+        )
+        ice = {
+            "offering_id": "LegacyAutomaker_ICE", "product_type": "ICE",
+            "msrp": 40_000, "mpg": 30.0, "range_mi": 400,
+            "annual_maintenance": 900, "kwh_per_mile": None,
+        }
+        u_ice_low_green = calc.compute(low_green, ice, env)
+        u_ice_high_green = calc.compute(high_green, ice, env)
+        assert u_ice_low_green > u_ice_high_green

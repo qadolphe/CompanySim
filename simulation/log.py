@@ -50,9 +50,21 @@ class SimulationLog:
             ),
             "r_and_d_policy": (
                 "# R&D Policy\n"
-                "R&D spend is based on revenue with a minimum annual floor.\n"
+                "R&D spend is pegged to prior-year revenue with a minimum annual floor.\n"
                 "This prevents runaway cash burn when capital is high but sales are weak,\n"
                 "while preserving sustained innovation pressure."
+            ),
+            "market_scaling": (
+                "# Market Scaling\n"
+                "Each simulated household purchase is scaled by CONSUMER_MULTIPLIER\n"
+                "to map micro agent outcomes to macro corporate financials.\n"
+                "Scaling is applied exactly once at the marketplace transaction boundary."
+            ),
+            "ev_adoption_friction": (
+                "# EV Adoption Friction\n"
+                "EV utility includes an aggressive non-linear infrastructure shortfall penalty\n"
+                "plus early-year amplification and demographic relief effects.\n"
+                "Incumbent drivetrain familiarity adds a technology inertia bonus for ICE/Hybrid."
             ),
         }
 

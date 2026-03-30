@@ -11,6 +11,7 @@ from domain.consumer.factory import PopulationFactory
 from domain.market.marketplace import Marketplace
 from domain.market.models import VehicleOffering
 from domain.environment.models import PolicySnapshot
+from simulation.config import CONSUMER_MULTIPLIER
 
 
 @pytest.fixture
@@ -95,7 +96,7 @@ class TestConsumerMarketFlow:
                     marketplace.attempt_purchase(choice)
 
         summary = marketplace.get_sales_summary()
-        assert summary["LegacyAutomaker_EV"].units_sold <= 5
+        assert summary["LegacyAutomaker_EV"].units_sold <= 5 * CONSUMER_MULTIPLIER
 
     def test_market_split_is_reasonable(
         self, env_2024: PolicySnapshot, full_catalog: list[VehicleOffering]

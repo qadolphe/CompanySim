@@ -25,9 +25,12 @@ from simulation.config import (
     INCOME_STD,
     START_YEAR,
     UTILITY_INFRA_CONVEXITY,
+    UTILITY_INFRA_CRITICAL_THRESHOLD,
+    UTILITY_INFRA_CRITICAL_MULTIPLIER,
     UTILITY_EARLY_YEARS_AMPLIFIER,
     UTILITY_EARLY_DECAY_YEARS,
     UTILITY_DEMOGRAPHIC_SHIELD_MAX,
+    TECH_INERTIA_BONUS,
 )
 
 
@@ -102,6 +105,11 @@ class VehicleUtilityCalculator(UtilityCalculator):
         if offering["product_type"] in ("EV", "HYBRID"):
             green_bonus = profile.green_preference * UTILITY_BETA_MAX
 
+        # Technology inertia captures incumbent familiarity/servicing convenience.
+        tech_inertia = 0.0
+        if offering["product_type"] in ("ICE", "HYBRID"):
+            tech_inertia = TECH_INERTIA_BONUS * (1.0 - 0.5 * profile.green_preference)
+
         # ── Range anxiety (only for EVs) ──
         range_anxiety = 0.0
         if offering["product_type"] == "EV":
@@ -115,6 +123,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
         return (
             -alpha * tco_normalized
             + green_bonus
+            + tech_inertia
             - range_anxiety
             - ownership_hassle
         )
@@ -243,6 +252,10 @@ class VehicleUtilityCalculator(UtilityCalculator):
 
         infra_shortfall = max(0.0, 1.0 - env.charging_infrastructure_index)
         infrastructure_multiplier = infra_shortfall ** UTILITY_INFRA_CONVEXITY
+        if env.charging_infrastructure_index < UTILITY_INFRA_CRITICAL_THRESHOLD:
+            gap = (UTILITY_INFRA_CRITICAL_THRESHOLD - env.charging_infrastructure_index)
+            cliff = 1.0 + UTILITY_INFRA_CRITICAL_MULTIPLIER * (gap ** 2)
+            infrastructure_multiplier *= cliff
 
         years_elapsed = max(0, env.year - START_YEAR)
         early_multiplier = 1.0 + UTILITY_EARLY_YEARS_AMPLIFIER * math.exp(

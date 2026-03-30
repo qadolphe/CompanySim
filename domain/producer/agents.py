@@ -94,6 +94,13 @@ def _global_ev_msrp_factor(env: PolicySnapshot) -> float:
     return max(GLOBAL_EV_MSRP_MIN_FACTOR, min(1.0, factor))
 
 
+def _prior_year_revenue(ledger: CapitalLedger, fallback_current_year: float) -> float:
+    """Use prior-year revenue when available; fall back in year 1."""
+    if ledger.history:
+        return max(0.0, ledger.history[-1].revenue)
+    return max(0.0, fallback_current_year)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Abstract Contract
 # ═══════════════════════════════════════════════════════════════════
@@ -212,7 +219,8 @@ class LegacyAutomaker(ProducerAgent):
             self.ledger.record_opex(penalty, "penalty")
 
         # ── 4. R&D Allocation ──
-        target_r_and_d = max(R_AND_D_FLOOR_LEGACY, total_revenue * R_AND_D_PCT_LEGACY)
+        revenue_anchor = _prior_year_revenue(self.ledger, total_revenue)
+        target_r_and_d = max(R_AND_D_FLOOR_LEGACY, revenue_anchor * R_AND_D_PCT_LEGACY)
         available_cash = max(0.0, self.ledger.capital)
         r_and_d_budget = min(target_r_and_d, available_cash)
         r_and_d_alloc = self.strategy.compute_r_and_d_allocation(
@@ -394,7 +402,8 @@ class PureEVStartup(ProducerAgent):
         self.ledger.record_opex(sga, "sga")
 
         # ── 3. R&D ──
-        target_r_and_d = max(R_AND_D_FLOOR_STARTUP, rev * R_AND_D_PCT_STARTUP)
+        revenue_anchor = _prior_year_revenue(self.ledger, rev)
+        target_r_and_d = max(R_AND_D_FLOOR_STARTUP, revenue_anchor * R_AND_D_PCT_STARTUP)
         r_and_d_total = min(max(0.0, self.ledger.capital), target_r_and_d)
         if r_and_d_total > 0:
             self.pipeline.invest("EV", r_and_d_total)

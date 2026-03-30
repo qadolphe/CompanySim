@@ -43,6 +43,7 @@ SCENARIO: Scenario = Scenario.BASELINE
 START_YEAR: int = 2024
 END_YEAR: int = 2035
 NUM_CONSUMERS: int = 50_000
+CONSUMER_MULTIPLIER: int = 3_000
 
 # ── Drivetrain Types ──
 DRIVETRAINS: list[str] = ["ICE", "HYBRID", "EV"]
@@ -112,9 +113,12 @@ UTILITY_RANGE_ANXIETY_THRESHOLD: float = 2.5
 
 # Severe early-year EV friction parameters
 UTILITY_INFRA_CONVEXITY: float = 2.4
+UTILITY_INFRA_CRITICAL_THRESHOLD: float = 0.35
+UTILITY_INFRA_CRITICAL_MULTIPLIER: float = 1.9
 UTILITY_EARLY_YEARS_AMPLIFIER: float = 1.2
 UTILITY_EARLY_DECAY_YEARS: float = 4.0
 UTILITY_DEMOGRAPHIC_SHIELD_MAX: float = 0.75
+TECH_INERTIA_BONUS: float = 0.08
 
 # ── Ownership Hassle (EV charging difficulty) ──
 UTILITY_DELTA_MAX: float = 0.4
@@ -187,7 +191,7 @@ CAPACITY_SHIFT_PCT: float = 0.10
 # Revenue-based R&D spending with floor (replaces pure % of capital burn)
 R_AND_D_PCT_LEGACY: float = 0.06
 R_AND_D_PCT_STARTUP: float = 0.12
-R_AND_D_FLOOR_LEGACY: float = 40_000_000.0
+R_AND_D_FLOOR_LEGACY: float = 250_000_000.0
 R_AND_D_FLOOR_STARTUP: float = 25_000_000.0
 
 # R&D Milestone thresholds

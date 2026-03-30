@@ -19,6 +19,7 @@ from domain.environment.service import EnvironmentService
 from simulation.config import (
     START_YEAR,
     END_YEAR,
+    CONSUMER_MULTIPLIER,
     DEFAULT_VEHICLE_CATALOG,
     EV_COGS_LEARNING_RATE,
     EV_COGS_REFERENCE_UNITS,
@@ -229,16 +230,25 @@ class SimulationVisualizer:
         if ax is None:
             fig, ax = plt.subplots(figsize=FIG_SIZE)
 
-        sales_cols = [f"sales_{dt.lower()}_units" for dt in ["ICE", "HYBRID", "EV"]
-                      if f"sales_{dt.lower()}_units" in self.df.columns]
-        labels = [c.replace("sales_", "").replace("_units", "").upper()
-                  for c in sales_cols]
+        drivetrain_sales = {}
+        for dt in ["ICE", "HYBRID", "EV"]:
+            dt_key = dt.lower()
+            dt_cols = [
+                c for c in self.df.columns
+                if c.startswith("sales_") and c.endswith("_units")
+                and c not in {"sales_total_units"}
+                and c.endswith(f"_{dt_key}_units")
+            ]
+            if dt_cols:
+                drivetrain_sales[dt] = self.df[dt_cols].sum(axis=1)
+
+        labels = list(drivetrain_sales.keys())
 
         x = range(len(self.df.index))
         width = 0.25
-        for i, (col, label) in enumerate(zip(sales_cols, labels)):
+        for i, label in enumerate(labels):
             offset = (i - 1) * width
-            ax.bar([xi + offset for xi in x], self.df[col],
+            ax.bar([xi + offset for xi in x], drivetrain_sales[label],
                    width=width, label=label, color=PALETTE.get(label, "#95A5A6"),
                    alpha=0.85)
 
@@ -248,7 +258,8 @@ class SimulationVisualizer:
         ax.set_ylabel("Units Sold")
         ax.set_xticks(list(x))
         ax.set_xticklabels(self.df.index)
-        ax.legend()
+        if labels:
+            ax.legend()
 
         return fig or ax.get_figure()
 
@@ -398,6 +409,37 @@ class SimulationVisualizer:
 
         return fig or ax.get_figure()
 
+    def plot_scaling_sanity_explainer(self, ax: plt.Axes | None = None) -> plt.Figure:
+        """Explainer chart: verify macro sales scale tracks micro buyers with fixed multiplier."""
+        fig = None
+        if ax is None:
+            fig, ax = plt.subplots(figsize=FIG_SIZE)
+
+        if "consumers_bought" in self.df.columns and "sales_total_units" in self.df.columns:
+            buyers = self.df["consumers_bought"].astype(float)
+            macro_units = self.df["sales_total_units"].astype(float)
+            expected_units = buyers * CONSUMER_MULTIPLIER
+
+            ax.plot(self.df.index, macro_units, color="#1d4ed8", linewidth=2.5, marker="o", label="Macro Units Sold")
+            ax.plot(self.df.index, expected_units, color="#16a34a", linewidth=2.0, linestyle="--", marker="s", label=f"Expected: buyers x {CONSUMER_MULTIPLIER:,}")
+
+            ax2 = ax.twinx()
+            safe_buyers = buyers.replace(0, pd.NA)
+            observed_ratio = (macro_units / safe_buyers).fillna(0)
+            ax2.plot(self.df.index, observed_ratio, color="#dc2626", linewidth=1.8, marker="^", label="Observed Scaling Ratio")
+            ax2.set_ylabel("Units per Simulated Buyer", color="#dc2626")
+            ax2.tick_params(axis="y", labelcolor="#dc2626")
+
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+
+        ax.set_title("Explainer: Micro-to-Macro Scaling Sanity Check", fontsize=14, fontweight="bold")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("Units")
+
+        return fig or ax.get_figure()
+
     def export_all(self, output_dir: str = "output") -> None:
         """Save all plots as PNGs and export raw data as CSV."""
         Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -414,6 +456,7 @@ class SimulationVisualizer:
             "08_explainer_wrights_battery_curve": self.plot_wrights_law_explainer,
             "09_explainer_utility_penalty": self.plot_utility_penalty_explainer,
             "10_explainer_startup_valley_of_death": self.plot_startup_valley_of_death,
+            "11_explainer_scaling_sanity": self.plot_scaling_sanity_explainer,
         }
 
         for name, plot_fn in plots.items():

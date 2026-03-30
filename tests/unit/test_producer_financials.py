@@ -10,9 +10,11 @@ Tests cover:
 import pytest
 
 from domain.producer.models import CapitalLedger, RAndDPipeline
+from domain.producer.models import AnnualFinancials
 from domain.producer.agents import LegacyAutomaker
 from domain.market.models import SalesRecord
 from domain.environment.models import PolicySnapshot
+from simulation.config import R_AND_D_PCT_LEGACY
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -183,3 +185,27 @@ class TestAutomakerFinancials:
         assert "capacity" in state
         assert "r_and_d" in state
         assert "financials" in state
+
+    def test_r_and_d_uses_prior_year_revenue_anchor(
+        self, automaker: LegacyAutomaker, env: PolicySnapshot
+    ) -> None:
+        """R&D budget should key off prior-year revenue, not current-year sales."""
+        automaker.ledger.history.append(
+            AnnualFinancials(
+                year=2023,
+                revenue_by_dt={"ICE": 10_000_000_000.0},
+            )
+        )
+
+        sales = {
+            "ICE": SalesRecord("ICE", "ICE", 0, 0),
+            "HYBRID": SalesRecord("HYBRID", "HYBRID", 0, 0),
+            "EV": SalesRecord("EV", "EV", 0, 0),
+        }
+        automaker.process_sales(sales, env)
+
+        expected_anchor_budget = 10_000_000_000.0 * R_AND_D_PCT_LEGACY
+        assert automaker.ledger.history[-1].r_and_d == pytest.approx(
+            expected_anchor_budget,
+            rel=0.02,
+        )
