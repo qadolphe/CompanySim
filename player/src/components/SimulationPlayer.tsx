@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { Scenario, ScenarioDatasets } from "../types";
+import type { MethodologyMap, Scenario, ScenarioDatasets } from "../types";
 import { loadAllScenarios } from "../data/loadData";
 import ControlBar from "./ControlBar";
 import DashboardTabs from "./DashboardTabs";
@@ -7,12 +7,16 @@ import MicroSwarm from "./MicroSwarm";
 
 export default function SimulationPlayer() {
   const [datasets, setDatasets] = useState<ScenarioDatasets | null>(null);
+  const [methodology, setMethodology] = useState<Record<Scenario, MethodologyMap> | null>(null);
   const [scenario, setScenario] = useState<Scenario>("baseline");
   const [step, setStep] = useState(0);
   const prevStepRef = useRef(0);
 
   useEffect(() => {
-    loadAllScenarios().then(setDatasets);
+    loadAllScenarios().then(({ datasets, methodology }) => {
+      setDatasets(datasets);
+      setMethodology(methodology);
+    });
   }, []);
 
   const data = datasets ? datasets[scenario] : null;
@@ -68,7 +72,11 @@ export default function SimulationPlayer() {
   return (
     <div className="flex flex-col h-screen bg-gray-100 text-gray-900">
       <div className="flex-1 grid grid-cols-[440px_1fr] min-h-0">
-        <DashboardTabs tick={tick} chartData={chartData} />
+        <DashboardTabs
+          tick={tick}
+          chartData={chartData}
+          methodology={methodology?.[scenario] ?? {}}
+        />
         <MicroSwarm tick={tick} prevTick={prevTick} />
       </div>
       <ControlBar

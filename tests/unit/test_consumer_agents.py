@@ -2,7 +2,7 @@
 Unit tests for AutoConsumer agent behavior.
 
 Tests cover:
-  - is_in_market logic (ownership cycle, no vehicle)
+    - is_in_market logic (probabilistic, income-weighted, no vehicle)
   - evaluate_and_choose (selection, affordability gate)
   - record_purchase (state update)
   - age_one_tick (clock advancement)
@@ -13,7 +13,6 @@ import pytest
 from domain.consumer.agents import AutoConsumer
 from domain.consumer.models import ConsumerProfile
 from domain.environment.models import PolicySnapshot
-from simulation.config import VEHICLE_OWNERSHIP_YEARS
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -58,25 +57,28 @@ def _make_agent(**overrides) -> AutoConsumer:
 
 class TestIsInMarket:
 
-    def test_in_market_when_ownership_cycle_reached(self) -> None:
-        agent = _make_agent(years_owned=VEHICLE_OWNERSHIP_YEARS)
-        assert agent.is_in_market()
-
-    def test_in_market_when_exceeds_ownership_cycle(self) -> None:
-        agent = _make_agent(years_owned=VEHICLE_OWNERSHIP_YEARS + 3)
-        assert agent.is_in_market()
-
-    def test_not_in_market_when_recently_bought(self) -> None:
-        agent = _make_agent(years_owned=1)
-        assert not agent.is_in_market()
-
     def test_in_market_when_no_vehicle(self) -> None:
         agent = _make_agent(current_vehicle=None, years_owned=0)
         assert agent.is_in_market()
 
-    def test_not_in_market_midway(self) -> None:
-        agent = _make_agent(years_owned=VEHICLE_OWNERSHIP_YEARS // 2)
+    def test_higher_income_increases_entry_probability(self) -> None:
+        low = _make_agent(annual_income=35_000, years_owned=4)
+        high = _make_agent(annual_income=180_000, years_owned=4)
+        assert high._market_entry_probability() > low._market_entry_probability()
+
+    def test_more_years_owned_increases_entry_probability(self) -> None:
+        newer = _make_agent(annual_income=70_000, years_owned=1)
+        older = _make_agent(annual_income=70_000, years_owned=9)
+        assert older._market_entry_probability() > newer._market_entry_probability()
+
+    def test_market_entry_draw_gate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        agent = _make_agent(annual_income=70_000, years_owned=5)
+        monkeypatch.setattr(agent, "_market_entry_probability", lambda: 0.25)
+        monkeypatch.setattr(agent._rng, "random", lambda: 0.90)
         assert not agent.is_in_market()
+
+        monkeypatch.setattr(agent._rng, "random", lambda: 0.10)
+        assert agent.is_in_market()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -141,11 +143,11 @@ class TestStateMutations:
         assert agent.profile.years_owned == 0
 
     def test_purchase_then_age_cycle(self) -> None:
-        """Full lifecycle: buy → age → eventually re-enter market."""
+        """Full lifecycle: buy → age → can eventually re-enter market."""
         agent = _make_agent(current_vehicle=None, years_owned=0)
         agent.record_purchase("HYBRID")
-        assert not agent.is_in_market()
+        assert agent.profile.current_vehicle == "HYBRID"
 
-        for _ in range(VEHICLE_OWNERSHIP_YEARS):
+        for _ in range(10):
             agent.age_one_tick()
-        assert agent.is_in_market()
+        assert agent.profile.years_owned == 10

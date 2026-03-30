@@ -125,11 +125,21 @@ class CapitalLedger:
     cumulative_penalties: float = 0.0
     cumulative_r_and_d: float = 0.0
     cumulative_retooling: float = 0.0
+    cumulative_units_by_dt: dict[str, int] = field(default_factory=dict)
 
-    def record_sale(self, drivetrain: str, revenue: float, cogs: float) -> None:
+    def record_sale(
+        self,
+        drivetrain: str,
+        revenue: float,
+        cogs: float,
+        units_sold: int = 0,
+    ) -> None:
         """Record per-drivetrain revenue and COGS; updates capital immediately."""
         self._tick_revenue[drivetrain] = self._tick_revenue.get(drivetrain, 0) + revenue
         self._tick_cogs[drivetrain] = self._tick_cogs.get(drivetrain, 0) + cogs
+        if units_sold > 0:
+            current = self.cumulative_units_by_dt.get(drivetrain, 0)
+            self.cumulative_units_by_dt[drivetrain] = current + units_sold
         self.capital += (revenue - cogs)
         self.cumulative_revenue += revenue
         self.cumulative_cogs += cogs
@@ -220,6 +230,7 @@ class CapitalLedger:
             "cumulative_penalties": self.cumulative_penalties,
             "cumulative_r_and_d": self.cumulative_r_and_d,
             "cumulative_retooling": self.cumulative_retooling,
+            "cumulative_units_by_dt": dict(self.cumulative_units_by_dt),
         }
 
 

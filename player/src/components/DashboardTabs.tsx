@@ -1,14 +1,16 @@
 import { useState } from "react";
-import type { Tick } from "../types";
+import type { MethodologyMap, Tick } from "../types";
 import KPICards from "./KPICards";
 import MacroChart from "./MacroChart";
 import CompanyFinancials from "./CompanyFinancials";
+import ExplainerModal from "./ExplainerModal";
 
 type Tab = "overview" | "legacy" | "startup";
 
 interface DashboardTabsProps {
   tick: Tick;
   chartData: Tick[];
+  methodology: MethodologyMap;
 }
 
 const TABS: { key: Tab; label: string }[] = [
@@ -17,9 +19,16 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "startup", label: "EV Startup" },
 ];
 
-export default function DashboardTabs({ tick, chartData }: DashboardTabsProps) {
+export default function DashboardTabs({ tick, chartData, methodology }: DashboardTabsProps) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [showEvents, setShowEvents] = useState(false);
+  const [explainer, setExplainer] = useState<{ title: string; content: string } | null>(null);
+
+  const openExplainer = (key: string, fallbackTitle: string) => {
+    const text = methodology[key];
+    if (!text) return;
+    setExplainer({ title: fallbackTitle, content: text });
+  };
 
   return (
     <div className="flex flex-col border-r border-gray-200 bg-gray-50 min-h-0">
@@ -59,7 +68,11 @@ export default function DashboardTabs({ tick, chartData }: DashboardTabsProps) {
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {activeTab === "overview" && (
-          <OverviewPanel tick={tick} chartData={chartData} />
+          <OverviewPanel
+            tick={tick}
+            chartData={chartData}
+            onExplain={openExplainer}
+          />
         )}
         {activeTab === "legacy" && (
           <CompanyFinancials
@@ -68,6 +81,7 @@ export default function DashboardTabs({ tick, chartData }: DashboardTabsProps) {
             tick={tick}
             chartData={chartData}
             showEvents={showEvents}
+            onExplain={openExplainer}
           />
         )}
         {activeTab === "startup" && (
@@ -77,16 +91,30 @@ export default function DashboardTabs({ tick, chartData }: DashboardTabsProps) {
             tick={tick}
             chartData={chartData}
             showEvents={showEvents}
+            onExplain={openExplainer}
           />
         )}
       </div>
+
+      <ExplainerModal
+        open={Boolean(explainer)}
+        title={explainer?.title ?? "Methodology"}
+        content={explainer?.content ?? ""}
+        onClose={() => setExplainer(null)}
+      />
     </div>
   );
 }
 
 // ── Overview panel (moved from MacroDashboard) ─────────────────────
 
-function OverviewPanel({ tick, chartData }: { tick: Tick; chartData: Tick[] }) {
+function OverviewPanel(
+  {
+    tick,
+    chartData,
+    onExplain,
+  }: { tick: Tick; chartData: Tick[]; onExplain: (key: string, title: string) => void },
+) {
   const counts = { ICE: 0, HYBRID: 0, EV: 0 };
   for (const c of tick.micro_state) counts[c.vehicle]++;
   const total = tick.micro_state.length;
@@ -104,9 +132,12 @@ function OverviewPanel({ tick, chartData }: { tick: Tick; chartData: Tick[] }) {
 
       {/* Vehicle mix bar */}
       <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-600 mb-2 uppercase tracking-wide">
-          Vehicle Mix
-        </h3>
+        <div className="flex items-center gap-2 mb-2">
+          <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
+            Vehicle Mix
+          </h3>
+          <InfoButton onClick={() => onExplain("consumer_replacement_rate", "Consumer Replacement Rate")} />
+        </div>
         <div className="flex h-5 rounded-full overflow-hidden">
           {segments.map((s) => (
             <div
@@ -128,9 +159,12 @@ function OverviewPanel({ tick, chartData }: { tick: Tick; chartData: Tick[] }) {
       {/* Events timeline for current tick */}
       {tick.events.length > 0 && (
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-600 mb-2 uppercase tracking-wide">
-            Events — {tick.year}
-          </h3>
+          <div className="flex items-center gap-2 mb-2">
+            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
+              Events — {tick.year}
+            </h3>
+            <InfoButton onClick={() => onExplain("legacy_capex_burden", "Legacy CapEx Burden")} />
+          </div>
           <div className="space-y-2">
             {tick.events.map((ev, i) => (
               <div
@@ -151,5 +185,19 @@ function OverviewPanel({ tick, chartData }: { tick: Tick; chartData: Tick[] }) {
         </div>
       )}
     </>
+  );
+}
+
+function InfoButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-300 text-[10px] font-bold text-gray-500 hover:bg-gray-100"
+      aria-label="Open methodology explainer"
+      title="Open methodology explainer"
+    >
+      i
+    </button>
   );
 }

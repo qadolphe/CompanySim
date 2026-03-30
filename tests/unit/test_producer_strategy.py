@@ -6,7 +6,6 @@ import pytest
 
 from domain.producer.strategy import StrategyEngine
 from domain.market.models import SalesRecord
-from simulation.config import R_AND_D_BUDGET_PCT
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -99,7 +98,7 @@ class TestRAndDAllocation:
             "EV": SalesRecord("EV", "EV", units_sold=100, revenue=4_200_000),
         }
         alloc = StrategyEngine.compute_r_and_d_allocation(
-            capital=1_000_000_000, sales=sales, product_types=["ICE", "HYBRID", "EV"]
+            r_and_d_budget=80_000_000, sales=sales, product_types=["ICE", "HYBRID", "EV"]
         )
         assert alloc["ICE"] == 0.0
 
@@ -111,28 +110,27 @@ class TestRAndDAllocation:
             "EV": SalesRecord("EV", "EV", units_sold=10, revenue=420_000),  # tiny EV sales
         }
         alloc = StrategyEngine.compute_r_and_d_allocation(
-            capital=1_000_000_000, sales=sales, product_types=["ICE", "HYBRID", "EV"]
+            r_and_d_budget=80_000_000, sales=sales, product_types=["ICE", "HYBRID", "EV"]
         )
-        budget = 1_000_000_000 * R_AND_D_BUDGET_PCT
+        budget = 80_000_000
         assert alloc["EV"] >= budget * 0.30 - 1  # allow tiny fp error
 
     def test_total_r_and_d_equals_budget(self) -> None:
-        """All R&D allocation should sum to the budget percentage of capital."""
+        """All R&D allocation should sum to the provided budget."""
         sales = {
             "ICE": SalesRecord("ICE", "ICE", units_sold=500, revenue=16_000_000),
             "HYBRID": SalesRecord("HYBRID", "HYBRID", units_sold=200, revenue=7_000_000),
             "EV": SalesRecord("EV", "EV", units_sold=100, revenue=4_200_000),
         }
-        capital = 1_000_000_000
+        budget = 80_000_000
         alloc = StrategyEngine.compute_r_and_d_allocation(
-            capital=capital, sales=sales, product_types=["ICE", "HYBRID", "EV"]
+            r_and_d_budget=budget, sales=sales, product_types=["ICE", "HYBRID", "EV"]
         )
-        expected = capital * R_AND_D_BUDGET_PCT
-        assert sum(alloc.values()) == pytest.approx(expected, rel=0.01)
+        assert sum(alloc.values()) == pytest.approx(budget, rel=0.01)
 
-    def test_zero_capital_zero_r_and_d(self) -> None:
+    def test_zero_budget_zero_r_and_d(self) -> None:
         sales = {"ICE": SalesRecord("ICE", "ICE", 0, 0)}
         alloc = StrategyEngine.compute_r_and_d_allocation(
-            capital=0, sales=sales, product_types=["ICE"]
+            r_and_d_budget=0, sales=sales, product_types=["ICE"]
         )
         assert alloc["ICE"] == 0.0

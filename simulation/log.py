@@ -24,6 +24,41 @@ class SimulationLog:
     def __init__(self) -> None:
         self._records: list[dict[str, Any]] = []
         self._micro_records: list[dict[str, Any]] = []
+        self._methodology: dict[str, str] = {
+            "ev_cogs_curve": (
+                "# EV COGS Curve\n"
+                "EV COGS starts above parity and declines with two forces:\n"
+                "- Battery cost decline toward 2030 (BloombergNEF-style trend proxy).\n"
+                "- Wright's Law learning: each cumulative production doubling lowers costs.\n"
+                "\n"
+                "Assumption: battery-pack parity near $100/kWh around 2028, with continued\n"
+                "decline toward ~$80/kWh by 2030 in baseline conditions."
+            ),
+            "consumer_replacement_rate": (
+                "# Consumer Replacement Rate\n"
+                "Market entry is probabilistic and income-weighted, not a flat cycle.\n"
+                "- Top-income households trend toward 3-4 year replacement behavior.\n"
+                "- Lower-income households trend toward 8-12 years.\n"
+                "- Small random noise avoids synchronized demand spikes."
+            ),
+            "legacy_capex_burden": (
+                "# Legacy CapEx Burden\n"
+                "Capacity shifts require retooling spend per unit of moved capacity.\n"
+                "This captures plant conversion burden and delayed payback in transition years.\n"
+                "\n"
+                "Assumption: retooling cost calibrated to roughly $10k-$15k per unit capacity."
+            ),
+            "r_and_d_policy": (
+                "# R&D Policy\n"
+                "R&D spend is based on revenue with a minimum annual floor.\n"
+                "This prevents runaway cash burn when capital is high but sales are weak,\n"
+                "while preserving sustained innovation pressure."
+            ),
+        }
+
+    def set_methodology(self, methodology: dict[str, str]) -> None:
+        """Override default methodology text for output payloads."""
+        self._methodology = dict(methodology)
 
     def record(
         self,
@@ -137,10 +172,14 @@ class SimulationLog:
         })
 
     def to_micro_json(self, path: str) -> None:
-        """Write the micro-state log to a compact JSON file."""
+        """Write micro-state and methodology to a compact JSON file."""
         for tick in self._micro_records:
             for c in tick.get("micro_state", []):
                 if "income" in c:
                     c["income"] = int(c["income"])
+        payload = {
+            "methodology": self._methodology,
+            "ticks": self._micro_records,
+        }
         with open(path, "w") as f:
-            json.dump(self._micro_records, f, separators=(',', ':'))
+            json.dump(payload, f, separators=(",", ":"))

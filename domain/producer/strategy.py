@@ -13,7 +13,6 @@ from simulation.config import (
     CAPACITY_SHIFT_MAX_UNITS,
     CAPACITY_SHIFT_PCT,
     RETOOLING_COST_PER_UNIT,
-    R_AND_D_BUDGET_PCT,
     R_AND_D_EV_FLOOR_PCT,
 )
 
@@ -67,7 +66,6 @@ class StrategyEngine:
             else:
                 raw_shifts[ptype] = 0
 
-        # Enforce zero-sum constraint
         return StrategyEngine._enforce_zero_sum(raw_shifts, capacity)
 
     @staticmethod
@@ -83,10 +81,8 @@ class StrategyEngine:
         if net == 0:
             return shifts
 
-        # Distribute the imbalance across eligible types
         adjusted = dict(shifts)
         if net > 0:
-            # Too much increase — reduce the increases proportionally
             increasers = [k for k, v in adjusted.items() if v > 0]
             if increasers:
                 reduction_each = net // len(increasers)
@@ -94,7 +90,6 @@ class StrategyEngine:
                 for i, k in enumerate(increasers):
                     adjusted[k] -= reduction_each + (1 if i < remainder else 0)
         else:
-            # Too much decrease — reduce the decreases
             decreasers = [k for k, v in adjusted.items() if v < 0]
             if decreasers:
                 increase_each = abs(net) // len(decreasers)
@@ -102,7 +97,6 @@ class StrategyEngine:
                 for i, k in enumerate(decreasers):
                     adjusted[k] += increase_each + (1 if i < remainder else 0)
 
-        # Floor: no capacity goes negative
         for ptype in adjusted:
             if capacity[ptype] + adjusted[ptype] < 0:
                 adjusted[ptype] = -capacity[ptype]
@@ -119,20 +113,19 @@ class StrategyEngine:
 
     @staticmethod
     def compute_r_and_d_allocation(
-        capital: float,
+        r_and_d_budget: float,
         sales: dict[str, SalesRecord],
         product_types: list[str],
     ) -> dict[str, float]:
         """
-        Decide how to split R&D budget across product types.
+        Decide how to split a provided R&D budget across product types.
 
         Rules:
-          - Total R&D budget = capital × R_AND_D_BUDGET_PCT
           - EV gets at least R_AND_D_EV_FLOOR_PCT of the budget
-          - Remaining split proportional to sales volume
+          - Remaining split proportional to non-ICE sales
           - ICE gets no R&D (legacy, not investing in improvement)
         """
-        budget = capital * R_AND_D_BUDGET_PCT
+        budget = r_and_d_budget
         if budget <= 0:
             return {pt: 0.0 for pt in product_types}
 
@@ -153,10 +146,8 @@ class StrategyEngine:
                 else:
                     allocation[pt] = budget * R_AND_D_EV_FLOOR_PCT
             else:
-                # Hybrid and any others get the remainder
-                allocation[pt] = 0.0  # computed below
+                allocation[pt] = 0.0
 
-        # Remainder goes to non-ICE, non-EV types
         ev_amount = allocation.get("EV", 0.0)
         remaining = budget - ev_amount
         other_types = [pt for pt in product_types if pt not in ("ICE", "EV")]
@@ -187,15 +178,10 @@ class StrategyEngine:
           - COGS proximity to breakeven: tilt += 0.5 * max(0, 1 - ev_cogs_pct)
           - Emergency mode: 2+ consecutive negative FCF years → tilt *= 0.5
         """
-        # Mandate pressure (scales 0→0.5 as mandate goes 0→0.67)
         mandate_push = 0.5 * min(1.0, cafe_mandate_pct / 0.67)
-
-        # COGS proximity to breakeven (positive only once COGS < 1.0)
         cogs_pull = 0.5 * max(0.0, 1.0 - ev_cogs_pct)
 
         tilt = 1.0 + mandate_push + cogs_pull
-
-        # Emergency mode: survival trumps transition
         if consecutive_negative_fcf >= 2:
             tilt *= 0.5
 

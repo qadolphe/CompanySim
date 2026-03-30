@@ -8,12 +8,25 @@ AutoConsumer implementation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import math
+import random
 from typing import Optional
 
 from domain.consumer.models import ConsumerProfile
 from domain.consumer.utility import UtilityCalculator, VehicleUtilityCalculator
 from domain.environment.models import PolicySnapshot
-from simulation.config import VEHICLE_OWNERSHIP_YEARS
+from simulation.config import (
+    INCOME_MEAN,
+    INCOME_STD,
+    SHOPPING_CYCLE_MID_YEARS,
+    SHOPPING_INCOME_SLOPE,
+    SHOPPING_MIN_CYCLE_YEARS,
+    SHOPPING_MAX_CYCLE_YEARS,
+    SHOPPING_LOGIT_INTERCEPT,
+    SHOPPING_LOGIT_INCOME_WEIGHT,
+    SHOPPING_LOGIT_OWNERSHIP_WEIGHT,
+    SHOPPING_NOISE_SIGMA,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -86,6 +99,7 @@ class AutoConsumer(ConsumerAgent):
     ) -> None:
         self._profile = consumer_profile
         self._utility = utility_calculator or VehicleUtilityCalculator()
+        self._rng = random.Random(consumer_profile.id)
 
     @property
     def profile(self) -> ConsumerProfile:
@@ -95,11 +109,29 @@ class AutoConsumer(ConsumerAgent):
         """
         Consumer is shopping if:
           - They have no vehicle, OR
-          - Their vehicle is older than the ownership cycle
+          - A probabilistic trigger fires based on income and years owned.
         """
         if self._profile.current_vehicle is None:
             return True
-        return self._profile.years_owned >= VEHICLE_OWNERSHIP_YEARS
+        return self._rng.random() < self._market_entry_probability()
+
+    def _market_entry_probability(self) -> float:
+        """Income-weighted market-entry probability with small random noise."""
+        # Income z-score controls replacement-cycle target by cohort.
+        income_z = (self._profile.annual_income - INCOME_MEAN) / max(1.0, INCOME_STD)
+        target_cycle = SHOPPING_CYCLE_MID_YEARS - SHOPPING_INCOME_SLOPE * income_z
+        target_cycle = max(SHOPPING_MIN_CYCLE_YEARS, min(SHOPPING_MAX_CYCLE_YEARS, target_cycle))
+
+        ownership_pressure = self._profile.years_owned / max(1.0, target_cycle)
+        noise = self._rng.gauss(0.0, SHOPPING_NOISE_SIGMA)
+        logit = (
+            SHOPPING_LOGIT_INTERCEPT
+            + SHOPPING_LOGIT_INCOME_WEIGHT * income_z
+            + SHOPPING_LOGIT_OWNERSHIP_WEIGHT * ownership_pressure
+            + noise
+        )
+        probability = 1.0 / (1.0 + math.exp(-logit))
+        return max(0.0, min(1.0, probability))
 
     def evaluate_and_choose(
         self,

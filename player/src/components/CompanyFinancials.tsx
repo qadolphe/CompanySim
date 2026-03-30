@@ -19,6 +19,7 @@ interface CompanyFinancialsProps {
   tick: Tick;
   chartData: Tick[];
   showEvents: boolean;
+  onExplain?: (key: string, title: string) => void;
 }
 
 interface ChartPoint {
@@ -51,6 +52,7 @@ export default function CompanyFinancials({
   tick,
   chartData,
   showEvents,
+  onExplain,
 }: CompanyFinancialsProps) {
   const macro = tick.macro_state;
 
@@ -95,11 +97,27 @@ export default function CompanyFinancials({
         {grossMargin !== null && (
           <KPITile label="Gross Margin" value={`${(grossMargin * 100).toFixed(1)}%`} color="text-violet-600" />
         )}
-        <KPITile label="EV COGS Ratio" value={`${evCogs.toFixed(2)}x`} color="text-amber-600" />
+        <KPITile
+          label="EV COGS Ratio"
+          value={`${evCogs.toFixed(2)}x`}
+          color="text-amber-600"
+          infoAction={
+            onExplain
+              ? () => onExplain("ev_cogs_curve", "EV COGS Curve")
+              : undefined
+          }
+        />
       </div>
 
       {/* Revenue chart */}
-      <ChartCard title={`${companyLabel} — Revenue`}>
+      <ChartCard
+        title={`${companyLabel} — Revenue`}
+        infoAction={
+          onExplain
+            ? () => onExplain("r_and_d_policy", "R&D Policy")
+            : undefined
+        }
+      >
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={points}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -174,23 +192,56 @@ export default function CompanyFinancials({
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function KPITile({ label, value, color }: { label: string; value: string; color: string }) {
+function KPITile(
+  {
+    label,
+    value,
+    color,
+    infoAction,
+  }: { label: string; value: string; color: string; infoAction?: () => void },
+) {
   return (
     <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-200">
-      <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
+      <div className="flex items-center gap-2 text-xs text-gray-500 uppercase tracking-wide">
+        <span>{label}</span>
+        {infoAction && <InfoButton onClick={infoAction} />}
+      </div>
       <div className={`text-lg font-bold font-mono tabular-nums ${color}`}>{value}</div>
     </div>
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard(
+  {
+    title,
+    children,
+    infoAction,
+  }: { title: string; children: React.ReactNode; infoAction?: () => void },
+) {
   return (
     <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-      <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">
-        {title}
-      </h3>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
+          {title}
+        </h3>
+        {infoAction && <InfoButton onClick={infoAction} />}
+      </div>
       {children}
     </div>
+  );
+}
+
+function InfoButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-300 text-[10px] font-bold text-gray-500 hover:bg-gray-100"
+      aria-label="Open methodology explainer"
+      title="Open methodology explainer"
+    >
+      i
+    </button>
   );
 }
 

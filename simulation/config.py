@@ -91,6 +91,18 @@ COMMUTE_STD_MI: float = 15.0
 COMMUTE_MIN_MI: float = 5.0
 VEHICLE_OWNERSHIP_YEARS: int = 8
 
+# ── Income-weighted replacement model (probabilistic shopping) ──
+# Target replacement horizon by income percentile:
+# high-income households trend toward 3-4 years, lower-income toward 8-12.
+SHOPPING_CYCLE_MID_YEARS: float = 8.5
+SHOPPING_INCOME_SLOPE: float = 2.0
+SHOPPING_MIN_CYCLE_YEARS: float = 3.0
+SHOPPING_MAX_CYCLE_YEARS: float = 12.0
+SHOPPING_LOGIT_INTERCEPT: float = -2.0
+SHOPPING_LOGIT_INCOME_WEIGHT: float = 0.7
+SHOPPING_LOGIT_OWNERSHIP_WEIGHT: float = 1.8
+SHOPPING_NOISE_SIGMA: float = 0.03
+
 # ── Consumer Utility Weights ──
 UTILITY_ALPHA_BASE: float = 1.0
 UTILITY_ALPHA_SENSITIVITY: float = 2.0
@@ -121,8 +133,16 @@ COGS_PCT_BY_DRIVETRAIN: dict[str, float] = {
     "HYBRID": 0.85,    # Dual powertrain complexity
     "EV":     1.10,    # Battery cost dominance → negative margin at launch
 }
-# Each EV R&D milestone reduces EV COGS_PCT by this amount
-EV_RND_COGS_REDUCTION: float = 0.04   # 4pp per milestone
+
+# EV dynamic COGS curve (Wright's Law + battery cost trend)
+EV_COGS_MIN: float = 0.78
+EV_COGS_MAX: float = 1.35
+EV_COGS_LEARNING_RATE: float = 0.18
+EV_COGS_REFERENCE_UNITS: int = 10_000
+EV_BATTERY_DECLINE_TO_2030: float = 0.30
+
+# Keep legacy milestone-based reduction constant for backward compatibility
+EV_RND_COGS_REDUCTION: float = 0.04
 
 # Keep old flat COGS_PCT for backward compatibility in tests
 COGS_PCT: float = 0.83
@@ -150,6 +170,12 @@ R_AND_D_EV_FLOOR_PCT: float = 0.30
 RETOOLING_COST_PER_UNIT: float = 10_000.0
 CAPACITY_SHIFT_MAX_UNITS: int = 1_000
 CAPACITY_SHIFT_PCT: float = 0.10
+
+# Revenue-based R&D spending with floor (replaces pure % of capital burn)
+R_AND_D_PCT_LEGACY: float = 0.06
+R_AND_D_PCT_STARTUP: float = 0.12
+R_AND_D_FLOOR_LEGACY: float = 40_000_000.0
+R_AND_D_FLOOR_STARTUP: float = 25_000_000.0
 
 # R&D Milestone thresholds
 EV_RND_MILESTONE_COST: float = 1_000_000_000.0

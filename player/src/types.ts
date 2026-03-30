@@ -49,3 +49,15 @@ export interface Tick {
 export type SimulationData = Tick[];
 
 export type ScenarioDatasets = Record<Scenario, SimulationData>;
+
+export type MethodologyMap = Record<string, string>;
+
+export interface SimulationEnvelope {
+  methodology: MethodologyMap;
+  ticks: Tick[];
+}
+
+export interface ScenarioBundle {
+  datasets: ScenarioDatasets;
+  methodology: Record<Scenario, MethodologyMap>;
+}

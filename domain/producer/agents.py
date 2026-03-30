@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
+import math
 
 from domain.environment.models import PolicySnapshot
 from domain.market.models import ProductOffering, VehicleOffering, SalesRecord
@@ -19,6 +20,11 @@ from simulation.config import (
     PRODUCTION_CAPACITY,
     CAPACITY_SHIFT_MAX_UNITS,
     COGS_PCT_BY_DRIVETRAIN,
+    EV_COGS_MIN,
+    EV_COGS_MAX,
+    EV_COGS_LEARNING_RATE,
+    EV_COGS_REFERENCE_UNITS,
+    EV_BATTERY_DECLINE_TO_2030,
     EV_RND_COGS_REDUCTION,
     DEFAULT_VEHICLE_CATALOG,
     DRIVETRAINS,
@@ -28,15 +34,52 @@ from simulation.config import (
     HYBRID_RND_MILESTONE_COST,
     HYBRID_RND_MSRP_REDUCTION_PCT,
     RETOOLING_COST_PER_UNIT,
-    R_AND_D_BUDGET_PCT,
+    R_AND_D_PCT_LEGACY,
+    R_AND_D_PCT_STARTUP,
+    R_AND_D_FLOOR_LEGACY,
+    R_AND_D_FLOOR_STARTUP,
     SGA_FIXED_LEGACY,
     SGA_FIXED_STARTUP,
     SGA_VARIABLE_PCT,
     DEPRECIATION_RATE,
     CORPORATE_TAX_RATE,
     STARTUP_FUNDING_ROUNDS,
+    START_YEAR,
 )
 from domain.environment.service import EnvironmentService
+
+
+def _compute_dynamic_ev_cogs_pct(
+    year: int,
+    cumulative_ev_units: int,
+    milestones: int,
+    charging_infra_index: float,
+) -> float:
+    """
+    Dynamic EV COGS ratio using:
+      1) Battery learning over time (to 2030)
+      2) Wright's Law volume effect from cumulative EV production
+      3) Existing R&D milestone improvements
+    """
+    base = COGS_PCT_BY_DRIVETRAIN["EV"]
+
+    # Time-based battery decline proxy toward 2030.
+    denom = max(1, 2030 - START_YEAR)
+    progress = max(0.0, min(1.0, (min(year, 2030) - START_YEAR) / denom))
+    battery_factor = 1.0 - EV_BATTERY_DECLINE_TO_2030 * progress
+
+    # Wright's Law: each cumulative doubling reduces cost by learning_rate.
+    reference = max(1, EV_COGS_REFERENCE_UNITS)
+    observed_units = max(cumulative_ev_units, reference)
+    learning_exp = math.log2(max(1e-6, 1.0 - EV_COGS_LEARNING_RATE))
+    volume_factor = (observed_units / reference) ** learning_exp
+
+    # Better charging ecosystem modestly improves effective EV production economics.
+    infra_factor = 1.0 - 0.08 * max(0.0, min(charging_infra_index, 1.0))
+
+    cogs_pct = base * battery_factor * volume_factor * infra_factor
+    cogs_pct -= milestones * EV_RND_COGS_REDUCTION
+    return max(EV_COGS_MIN, min(EV_COGS_MAX, cogs_pct))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -127,15 +170,21 @@ class LegacyAutomaker(ProducerAgent):
 
         # ── 1. Per-drivetrain Revenue & COGS ──
         ev_milestones = self.pipeline.get_milestones("EV")
+        ev_cogs_pct = _compute_dynamic_ev_cogs_pct(
+            year=env.year,
+            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
+            milestones=ev_milestones,
+            charging_infra_index=env.charging_infrastructure_index,
+        )
         total_revenue = 0.0
         for dt, record in sales.items():
             rev = record.revenue
             total_revenue += rev
             cogs_pct = COGS_PCT_BY_DRIVETRAIN.get(dt, 0.83)
             if dt == "EV":
-                cogs_pct = max(0.50, cogs_pct - ev_milestones * EV_RND_COGS_REDUCTION)
+                cogs_pct = ev_cogs_pct
             cogs = rev * cogs_pct
-            self.ledger.record_sale(dt, rev, cogs)
+            self.ledger.record_sale(dt, rev, cogs, units_sold=record.units_sold)
 
         # ── 2. SG&A ──
         sga = SGA_FIXED_LEGACY + total_revenue * SGA_VARIABLE_PCT
@@ -148,8 +197,11 @@ class LegacyAutomaker(ProducerAgent):
             self.ledger.record_opex(penalty, "penalty")
 
         # ── 4. R&D Allocation ──
+        target_r_and_d = max(R_AND_D_FLOOR_LEGACY, total_revenue * R_AND_D_PCT_LEGACY)
+        available_cash = max(0.0, self.ledger.capital)
+        r_and_d_budget = min(target_r_and_d, available_cash)
         r_and_d_alloc = self.strategy.compute_r_and_d_allocation(
-            self.ledger.capital, sales, DRIVETRAINS
+            r_and_d_budget, sales, DRIVETRAINS
         )
         for dt, amount in r_and_d_alloc.items():
             if amount > 0:
@@ -186,8 +238,13 @@ class LegacyAutomaker(ProducerAgent):
 
     @property
     def ev_cogs_pct(self) -> float:
-        base = COGS_PCT_BY_DRIVETRAIN["EV"]
-        return max(0.50, base - self.pipeline.get_milestones("EV") * EV_RND_COGS_REDUCTION)
+        milestones = self.pipeline.get_milestones("EV")
+        return _compute_dynamic_ev_cogs_pct(
+            year=START_YEAR + len(self.ledger.history),
+            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
+            milestones=milestones,
+            charging_infra_index=0.5,
+        )
 
     def get_state(self) -> dict:
         stmt = self._last_stmt
@@ -300,11 +357,16 @@ class PureEVStartup(ProducerAgent):
 
         # ── 1. Revenue & COGS ──
         ev_milestones = self.pipeline.get_milestones("EV")
-        ev_cogs_pct = max(0.50, COGS_PCT_BY_DRIVETRAIN["EV"] - ev_milestones * EV_RND_COGS_REDUCTION)
+        ev_cogs_pct = _compute_dynamic_ev_cogs_pct(
+            year=env.year,
+            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
+            milestones=ev_milestones,
+            charging_infra_index=env.charging_infrastructure_index,
+        )
         if ev_sales and ev_sales.revenue > 0:
             rev = ev_sales.revenue
             cogs = rev * ev_cogs_pct
-            self.ledger.record_sale("EV", rev, cogs)
+            self.ledger.record_sale("EV", rev, cogs, units_sold=ev_sales.units_sold)
         else:
             rev = 0.0
 
@@ -313,7 +375,8 @@ class PureEVStartup(ProducerAgent):
         self.ledger.record_opex(sga, "sga")
 
         # ── 3. R&D ──
-        r_and_d_total = max(0, self.ledger.capital * R_AND_D_BUDGET_PCT)
+        target_r_and_d = max(R_AND_D_FLOOR_STARTUP, rev * R_AND_D_PCT_STARTUP)
+        r_and_d_total = min(max(0.0, self.ledger.capital), target_r_and_d)
         if r_and_d_total > 0:
             self.pipeline.invest("EV", r_and_d_total)
             self.ledger.record_opex(r_and_d_total, "r_and_d")
@@ -349,8 +412,13 @@ class PureEVStartup(ProducerAgent):
 
     @property
     def ev_cogs_pct(self) -> float:
-        base = COGS_PCT_BY_DRIVETRAIN["EV"]
-        return max(0.50, base - self.pipeline.get_milestones("EV") * EV_RND_COGS_REDUCTION)
+        milestones = self.pipeline.get_milestones("EV")
+        return _compute_dynamic_ev_cogs_pct(
+            year=START_YEAR + len(self.ledger.history),
+            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
+            milestones=milestones,
+            charging_infra_index=0.5,
+        )
 
     def get_state(self) -> dict:
         stmt = self._last_stmt
