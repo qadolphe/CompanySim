@@ -6,6 +6,7 @@ import pytest
 
 from domain.producer.strategy import StrategyEngine
 from domain.market.models import SalesRecord
+from simulation.config import R_AND_D_BUDGET_PCT
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -112,7 +113,7 @@ class TestRAndDAllocation:
         alloc = StrategyEngine.compute_r_and_d_allocation(
             capital=1_000_000_000, sales=sales, product_types=["ICE", "HYBRID", "EV"]
         )
-        budget = 1_000_000_000 * 0.15
+        budget = 1_000_000_000 * R_AND_D_BUDGET_PCT
         assert alloc["EV"] >= budget * 0.30 - 1  # allow tiny fp error
 
     def test_total_r_and_d_equals_budget(self) -> None:
@@ -126,7 +127,7 @@ class TestRAndDAllocation:
         alloc = StrategyEngine.compute_r_and_d_allocation(
             capital=capital, sales=sales, product_types=["ICE", "HYBRID", "EV"]
         )
-        expected = capital * 0.15
+        expected = capital * R_AND_D_BUDGET_PCT
         assert sum(alloc.values()) == pytest.approx(expected, rel=0.01)
 
     def test_zero_capital_zero_r_and_d(self) -> None:

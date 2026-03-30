@@ -67,7 +67,7 @@ class PopulationFactory:
         price_sensitivities = rng.uniform(0.0, 1.0, size=n)
 
         # Starting vehicle ownership — weighted toward ICE (realistic 2024)
-        vehicle_weights = [0.70, 0.20, 0.10]  # ICE, HYBRID, EV
+        vehicle_weights = [0.75, 0.15, 0.10]  # ICE, HYBRID, EV (2024 US stock)
         starting_vehicles = rng.choice(
             DRIVETRAINS,
             size=n,

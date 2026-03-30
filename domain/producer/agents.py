@@ -230,9 +230,9 @@ class PureEVStartup(ProducerAgent):
         # Base EV spec for the startup (usually more premium or disruptive initially)
         self._base_spec = deepcopy(base_ev_spec or DEFAULT_VEHICLE_CATALOG["EV"])
         if base_ev_spec is None:
-            # The startup enters the market with a slightly cheaper, longer-range EV
-            self._base_spec["msrp"] -= 2000
-            self._base_spec["range_mi"] += 50
+            # Startup premium: undercuts legacy MSRP, trades modest range for price
+            self._base_spec["msrp"] -= 3000
+            self._base_spec["range_mi"] += 40
         
         self._msrp_reduction = 0.0
         self._range_bonus = 0.0

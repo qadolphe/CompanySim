@@ -135,6 +135,10 @@ class SimulationLog:
         })
 
     def to_micro_json(self, path: str) -> None:
-        """Write the micro-state log to a JSON file."""
+        """Write the micro-state log to a compact JSON file."""
+        for tick in self._micro_records:
+            for c in tick.get("micro_state", []):
+                if "income" in c:
+                    c["income"] = int(c["income"])
         with open(path, "w") as f:
-            json.dump(self._micro_records, f)
+            json.dump(self._micro_records, f, separators=(',', ':'))

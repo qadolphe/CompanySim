@@ -105,12 +105,12 @@ class TestPolicySchedules:
             svc.tick()
         snap = svc.snapshot()
         assert snap.year == 2027
-        assert snap.ev_tax_credit == 6_000.0  # 2027-2028 bracket
+        assert snap.ev_tax_credit == 5_625.0  # 2027-2028 bracket (IRA erosion)
 
     def test_ev_tax_credit_2030(
         self, env_snapshot_2030: PolicySnapshot
     ) -> None:
-        assert env_snapshot_2030.ev_tax_credit == 4_500.0
+        assert env_snapshot_2030.ev_tax_credit == 3_750.0
 
     def test_emissions_penalty_starts_zero(
         self, env_snapshot_2024: PolicySnapshot
@@ -120,7 +120,7 @@ class TestPolicySchedules:
     def test_emissions_penalty_ramps_up(
         self, env_snapshot_2030: PolicySnapshot
     ) -> None:
-        assert env_snapshot_2030.emissions_penalty_per_unit == 1_000.0
+        assert env_snapshot_2030.emissions_penalty_per_unit == 3_500.0
 
     def test_cafe_mandate_increases(
         self, all_snapshots: list[PolicySnapshot]

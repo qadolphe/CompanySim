@@ -4,6 +4,7 @@ CompanySim — Auto Industry Policy Simulator
 Entry point: runs the full simulation and generates all output.
 """
 
+from simulation.config import NUM_CONSUMERS, START_YEAR, END_YEAR
 from simulation.engine import SimulationEngine
 from simulation.visualize import SimulationVisualizer
 
@@ -11,7 +12,7 @@ from simulation.visualize import SimulationVisualizer
 def main() -> None:
     print("=" * 60)
     print("  Auto Industry Policy Simulator")
-    print("  2024 — 2035 | 1,000 Consumers | 1 Legacy Automaker")
+    print(f"  {START_YEAR} — {END_YEAR} | {NUM_CONSUMERS:,} Consumers | 1 Legacy Automaker")
     print("=" * 60)
     print()
 
