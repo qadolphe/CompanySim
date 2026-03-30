@@ -126,11 +126,13 @@ class SimulationLog:
         year: int,
         macro_state: dict[str, Any],
         consumers: list[dict[str, Any]],
+        events: list[dict[str, Any]] | None = None,
     ) -> None:
         """Record per-consumer micro state for one tick."""
         self._micro_records.append({
             "year": year,
             "macro_state": macro_state,
+            "events": events or [],
             "micro_state": consumers,
         })
 

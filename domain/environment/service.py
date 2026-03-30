@@ -8,19 +8,7 @@ This is a read-only timeline: nothing in the simulation mutates it.
 from __future__ import annotations
 
 from domain.environment.models import PolicySnapshot
-from simulation.config import (
-    START_YEAR,
-    END_YEAR,
-    EV_TAX_CREDIT_SCHEDULE,
-    EMISSIONS_PENALTY_SCHEDULE,
-    CAFE_EV_MANDATE_SCHEDULE,
-    INTEREST_RATE_SCHEDULE,
-    GAS_PRICE_BASE,
-    GAS_PRICE_ANNUAL_GROWTH,
-    ELECTRICITY_PRICE_BASE,
-    ELECTRICITY_PRICE_ANNUAL_GROWTH,
-    CHARGING_INFRASTRUCTURE_SCHEDULE,
-)
+import simulation.config as cfg
 
 
 class EnvironmentService:
@@ -38,8 +26,8 @@ class EnvironmentService:
 
     def __init__(
         self,
-        start_year: int = START_YEAR,
-        end_year: int = END_YEAR,
+        start_year: int = cfg.START_YEAR,
+        end_year: int = cfg.END_YEAR,
     ) -> None:
         if start_year > end_year:
             raise ValueError(
@@ -106,30 +94,30 @@ class EnvironmentService:
         return schedule[max_range]
 
     def _ev_tax_credit(self) -> float:
-        return self._lookup_schedule(EV_TAX_CREDIT_SCHEDULE, self._current_year)
+        return self._lookup_schedule(cfg.EV_TAX_CREDIT_SCHEDULE, self._current_year)
 
     def _emissions_penalty(self) -> float:
-        return self._lookup_schedule(EMISSIONS_PENALTY_SCHEDULE, self._current_year)
+        return self._lookup_schedule(cfg.EMISSIONS_PENALTY_SCHEDULE, self._current_year)
 
     def _cafe_ev_mandate(self) -> float:
-        return self._lookup_schedule(CAFE_EV_MANDATE_SCHEDULE, self._current_year)
+        return self._lookup_schedule(cfg.CAFE_EV_MANDATE_SCHEDULE, self._current_year)
 
     def _interest_rate(self) -> float:
-        return self._lookup_schedule(INTEREST_RATE_SCHEDULE, self._current_year)
+        return self._lookup_schedule(cfg.INTEREST_RATE_SCHEDULE, self._current_year)
 
     def _charging_infrastructure_index(self) -> float:
-        return self._lookup_schedule(CHARGING_INFRASTRUCTURE_SCHEDULE, self._current_year)
+        return self._lookup_schedule(cfg.CHARGING_INFRASTRUCTURE_SCHEDULE, self._current_year)
 
     # ── Private: Compounding Economic Variables ──
 
     def _gas_price(self) -> float:
         """Gas price compounds annually from a base value."""
         years_elapsed = self._current_year - self._start_year
-        return GAS_PRICE_BASE * ((1.0 + GAS_PRICE_ANNUAL_GROWTH) ** years_elapsed)
+        return cfg.GAS_PRICE_BASE * ((1.0 + cfg.GAS_PRICE_ANNUAL_GROWTH) ** years_elapsed)
 
     def _electricity_price(self) -> float:
         """Electricity price compounds annually from a base value."""
         years_elapsed = self._current_year - self._start_year
-        return ELECTRICITY_PRICE_BASE * (
-            (1.0 + ELECTRICITY_PRICE_ANNUAL_GROWTH) ** years_elapsed
+        return cfg.ELECTRICITY_PRICE_BASE * (
+            (1.0 + cfg.ELECTRICITY_PRICE_ANNUAL_GROWTH) ** years_elapsed
         )

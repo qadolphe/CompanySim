@@ -2,7 +2,7 @@
 Producer agents — corporate entities that produce goods and adjust strategy.
 
 Contains the abstract ProducerAgent contract and the auto-industry
-LegacyAutomaker implementation.
+LegacyAutomaker and PureEVStartup implementations.
 """
 
 from __future__ import annotations
@@ -12,13 +12,14 @@ from copy import deepcopy
 
 from domain.environment.models import PolicySnapshot
 from domain.market.models import ProductOffering, VehicleOffering, SalesRecord
-from domain.producer.models import CapitalLedger, RAndDPipeline
+from domain.producer.models import AnnualFinancials, CapitalLedger, RAndDPipeline
 from domain.producer.strategy import StrategyEngine
 from simulation.config import (
     INITIAL_CAPITAL,
     PRODUCTION_CAPACITY,
     CAPACITY_SHIFT_MAX_UNITS,
-    COGS_PCT,
+    COGS_PCT_BY_DRIVETRAIN,
+    EV_RND_COGS_REDUCTION,
     DEFAULT_VEHICLE_CATALOG,
     DRIVETRAINS,
     EV_RND_MILESTONE_COST,
@@ -27,7 +28,15 @@ from simulation.config import (
     HYBRID_RND_MILESTONE_COST,
     HYBRID_RND_MSRP_REDUCTION_PCT,
     RETOOLING_COST_PER_UNIT,
+    R_AND_D_BUDGET_PCT,
+    SGA_FIXED_LEGACY,
+    SGA_FIXED_STARTUP,
+    SGA_VARIABLE_PCT,
+    DEPRECIATION_RATE,
+    CORPORATE_TAX_RATE,
+    STARTUP_FUNDING_ROUNDS,
 )
+from domain.environment.service import EnvironmentService
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -46,27 +55,21 @@ class ProducerAgent(ABC):
     def generate_offerings(
         self, env: PolicySnapshot
     ) -> list[ProductOffering]:
-        """Produce the catalog of products for this tick."""
         ...
 
     @abstractmethod
     def process_sales(
         self, sales: dict[str, SalesRecord], env: PolicySnapshot
     ) -> None:
-        """
-        Ingest sales results and update internal state:
-        revenue, costs, strategy adjustments.
-        """
         ...
 
     @abstractmethod
     def get_state(self) -> dict:
-        """Return a snapshot of internal state for logging."""
         ...
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Auto Industry Implementation
+# Auto Industry Implementation — Legacy Automaker
 # ═══════════════════════════════════════════════════════════════════
 
 class LegacyAutomaker(ProducerAgent):
@@ -75,9 +78,9 @@ class LegacyAutomaker(ProducerAgent):
 
     Each tick:
       1. Generate catalog (apply R&D effects to base specs)
-      2. Process sales (revenue, COGS, penalties)
-      3. Allocate R&D budget
-      4. Adjust production capacity
+      2. Process sales → full P&L: revenue, per-dt COGS, SGA, R&D,
+         penalties, depreciation, taxes → close_year()
+      3. Adjust production capacity
     """
 
     def __init__(
@@ -92,29 +95,20 @@ class LegacyAutomaker(ProducerAgent):
         self.strategy = StrategyEngine()
         self._base_catalog = deepcopy(base_catalog or DEFAULT_VEHICLE_CATALOG)
 
-        # Track R&D-driven modifications to base specs
         self._msrp_reductions: dict[str, float] = {dt: 0.0 for dt in DRIVETRAINS}
         self._range_bonuses: dict[str, float] = {dt: 0.0 for dt in DRIVETRAINS}
-
-        # History for logging
         self._last_sales: dict[str, SalesRecord] | None = None
-
-    # ── ProducerAgent Interface ──
+        self._last_stmt: AnnualFinancials | None = None
+        self._consecutive_negative_fcf: int = 0
 
     def generate_offerings(
         self, env: PolicySnapshot
     ) -> list[ProductOffering]:
-        """
-        Build the vehicle catalog for this tick.
-        Apply R&D-driven price reductions and range improvements.
-        """
         offerings: list[VehicleOffering] = []
-
         for dt in DRIVETRAINS:
             base = self._base_catalog[dt]
             msrp = base["msrp"] * (1.0 - self._msrp_reductions[dt])
             range_mi = base["range_mi"] + self._range_bonuses.get(dt, 0.0)
-
             offerings.append(VehicleOffering(
                 drivetrain=dt,
                 msrp=round(msrp, 2),
@@ -124,36 +118,34 @@ class LegacyAutomaker(ProducerAgent):
                 kwh_per_mile=base.get("kwh_per_mile"),
                 _units_available=self.capacity.get(dt, 0),
             ))
-
         return offerings
 
     def process_sales(
         self, sales: dict[str, SalesRecord], env: PolicySnapshot
     ) -> None:
-        """
-        Full end-of-tick processing:
-          1. Revenue from sales
-          2. COGS
-          3. Emissions penalties (per ICE unit)
-          4. R&D allocation
-          5. Apply R&D milestones
-          6. Production capacity adjustment
-        """
         self._last_sales = sales
 
-        # ── 1. Revenue ──
-        total_revenue = sum(s.revenue for s in sales.values())
-        self.ledger.record_revenue(total_revenue)
+        # ── 1. Per-drivetrain Revenue & COGS ──
+        ev_milestones = self.pipeline.get_milestones("EV")
+        total_revenue = 0.0
+        for dt, record in sales.items():
+            rev = record.revenue
+            total_revenue += rev
+            cogs_pct = COGS_PCT_BY_DRIVETRAIN.get(dt, 0.83)
+            if dt == "EV":
+                cogs_pct = max(0.50, cogs_pct - ev_milestones * EV_RND_COGS_REDUCTION)
+            cogs = rev * cogs_pct
+            self.ledger.record_sale(dt, rev, cogs)
 
-        # ── 2. COGS ──
-        cogs = total_revenue * COGS_PCT
-        self.ledger.record_cost(cogs, "cogs")
+        # ── 2. SG&A ──
+        sga = SGA_FIXED_LEGACY + total_revenue * SGA_VARIABLE_PCT
+        self.ledger.record_opex(sga, "sga")
 
         # ── 3. Emissions Penalties ──
         ice_sales = sales.get("ICE")
         if ice_sales and env.emissions_penalty_per_unit > 0:
             penalty = ice_sales.units_sold * env.emissions_penalty_per_unit
-            self.ledger.record_cost(penalty, "penalty")
+            self.ledger.record_opex(penalty, "penalty")
 
         # ── 4. R&D Allocation ──
         r_and_d_alloc = self.strategy.compute_r_and_d_allocation(
@@ -162,7 +154,7 @@ class LegacyAutomaker(ProducerAgent):
         for dt, amount in r_and_d_alloc.items():
             if amount > 0:
                 self.pipeline.invest(dt, amount)
-                self.ledger.record_cost(amount, "r_and_d")
+                self.ledger.record_opex(amount, "r_and_d")
 
         # ── 5. R&D Milestones ──
         self._apply_milestones()
@@ -171,40 +163,76 @@ class LegacyAutomaker(ProducerAgent):
         shifts = self.strategy.compute_capacity_shifts(sales, self.capacity)
         retooling_cost = self.strategy.compute_retooling_cost(shifts)
         if retooling_cost > 0:
-            self.ledger.record_cost(retooling_cost, "retooling")
+            self.ledger.record_capex(retooling_cost)
         for dt, shift in shifts.items():
             self.capacity[dt] = max(0, self.capacity[dt] + shift)
 
+        # ── 7. Close the year ──
+        stmt = self.ledger.close_year(env.year, CORPORATE_TAX_RATE, DEPRECIATION_RATE)
+        self._last_stmt = stmt
+        if stmt.free_cash_flow < 0:
+            self._consecutive_negative_fcf += 1
+        else:
+            self._consecutive_negative_fcf = 0
+
     def _apply_milestones(self) -> None:
-        """Check and apply R&D milestone effects."""
-        # EV milestones
-        new_ev = self.pipeline.check_and_award_milestones(
-            "EV", EV_RND_MILESTONE_COST
-        )
+        new_ev = self.pipeline.check_and_award_milestones("EV", EV_RND_MILESTONE_COST)
         if new_ev > 0:
             self._msrp_reductions["EV"] += new_ev * EV_RND_MSRP_REDUCTION_PCT
             self._range_bonuses["EV"] += new_ev * EV_RND_RANGE_BONUS_MI
-
-        # Hybrid milestones
-        new_hybrid = self.pipeline.check_and_award_milestones(
-            "HYBRID", HYBRID_RND_MILESTONE_COST
-        )
+        new_hybrid = self.pipeline.check_and_award_milestones("HYBRID", HYBRID_RND_MILESTONE_COST)
         if new_hybrid > 0:
-            self._msrp_reductions["HYBRID"] += (
-                new_hybrid * HYBRID_RND_MSRP_REDUCTION_PCT
-            )
+            self._msrp_reductions["HYBRID"] += new_hybrid * HYBRID_RND_MSRP_REDUCTION_PCT
+
+    @property
+    def ev_cogs_pct(self) -> float:
+        base = COGS_PCT_BY_DRIVETRAIN["EV"]
+        return max(0.50, base - self.pipeline.get_milestones("EV") * EV_RND_COGS_REDUCTION)
 
     def get_state(self) -> dict:
-        """Snapshot for logging."""
+        stmt = self._last_stmt
+        stmt_dict = stmt.to_dict() if stmt else {}
+        rev = stmt.revenue if stmt else 0.0
         return {
+            "firm": "LegacyAutomaker",
             "capital": self.ledger.capital,
+            "is_bankrupt": False,
             "capacity": dict(self.capacity),
             "total_capacity": sum(self.capacity.values()),
+            # ── Income Statement ──
+            "revenue": stmt_dict.get("revenue", 0),
+            "revenue_by_dt": stmt_dict.get("revenue_by_dt", {}),
+            "cogs_by_dt": stmt_dict.get("cogs_by_dt", {}),
+            "gross_profit": stmt_dict.get("gross_profit", 0),
+            "gross_profit_by_dt": stmt_dict.get("gross_profit_by_dt", {}),
+            "sga": stmt_dict.get("sga", 0),
+            "r_and_d": stmt_dict.get("r_and_d", 0),
+            "emissions_penalties": stmt_dict.get("emissions_penalties", 0),
+            "ebitda": stmt_dict.get("ebitda", 0),
+            "depreciation": stmt_dict.get("depreciation", 0),
+            "ebit": stmt_dict.get("ebit", 0),
+            "taxes": stmt_dict.get("taxes", 0),
+            "net_income": stmt_dict.get("net_income", 0),
+            # ── Cash Flow ──
+            "capex": stmt_dict.get("capex", 0),
+            "external_funding": stmt_dict.get("external_funding", 0),
+            "fcf": stmt_dict.get("fcf", 0),
+            # ── Ratios ──
+            "gross_margin_pct": (stmt.gross_profit / rev) if stmt and rev else 0,
+            "ev_cogs_pct": self.ev_cogs_pct,
+            "ev_gross_margin_pct": (
+                (stmt.gross_profit_by_dt.get("EV", 0) / stmt.revenue_by_dt.get("EV", 1))
+                if stmt and stmt.revenue_by_dt.get("EV") else 0
+            ),
+            # ── R&D Pipeline ──
+            "r_and_d_investments": dict(self.pipeline.investments),
+            "milestones_achieved": dict(self.pipeline.milestones_achieved),
             "msrp_reductions": dict(self._msrp_reductions),
             "range_bonuses": dict(self._range_bonuses),
-            "r_and_d": self.pipeline.to_dict(),
+            # ── Backward-compat ──
             "financials": self.ledger.to_dict(),
         }
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Pure EV Startup Implementation
@@ -212,9 +240,8 @@ class LegacyAutomaker(ProducerAgent):
 
 class PureEVStartup(ProducerAgent):
     """
-    A newly founded firm that only produces and sells Electric Vehicles.
-    It does not carry legacy ICE or Hybrid product lines, so 100% of its
-    capital and capacity are dedicated to EVs.
+    A pure-play EV startup. No legacy lines, no dealer overhead.
+    Survives on external funding until EV margins turn positive.
     """
 
     def __init__(
@@ -226,25 +253,25 @@ class PureEVStartup(ProducerAgent):
         self.ledger = CapitalLedger(capital=initial_capital)
         self.capacity = {"EV": production_capacity}
         self.pipeline = RAndDPipeline()
-        
-        # Base EV spec for the startup (usually more premium or disruptive initially)
+        self.is_bankrupt: bool = False
+
         self._base_spec = deepcopy(base_ev_spec or DEFAULT_VEHICLE_CATALOG["EV"])
         if base_ev_spec is None:
-            # Startup premium: undercuts legacy MSRP, trades modest range for price
             self._base_spec["msrp"] -= 3000
             self._base_spec["range_mi"] += 40
-        
+
         self._msrp_reduction = 0.0
         self._range_bonus = 0.0
         self._last_sales: dict[str, SalesRecord] | None = None
+        self._last_stmt: AnnualFinancials | None = None
 
     def generate_offerings(
         self, env: PolicySnapshot
     ) -> list[ProductOffering]:
-        """Generate the single EV catalog with a unique producer ID."""
+        if self.is_bankrupt:
+            return []
         msrp = self._base_spec["msrp"] * (1.0 - self._msrp_reduction)
         range_mi = self._base_spec["range_mi"] + self._range_bonus
-
         offering = VehicleOffering(
             drivetrain="EV",
             msrp=round(msrp, 2),
@@ -260,49 +287,106 @@ class PureEVStartup(ProducerAgent):
     def process_sales(
         self, sales: dict[str, SalesRecord], env: PolicySnapshot
     ) -> None:
+        if self.is_bankrupt:
+            return
         self._last_sales = sales
+
+        # ── 0. External funding injection ──
+        funding = self._get_funding(env.year)
+        if funding > 0:
+            self.ledger.record_funding(funding)
+
         ev_sales = sales.get("EV")
-        if not ev_sales:
-            return  # No sales to process
 
-        # 1. Revenue
-        self.ledger.record_revenue(ev_sales.revenue)
+        # ── 1. Revenue & COGS ──
+        ev_milestones = self.pipeline.get_milestones("EV")
+        ev_cogs_pct = max(0.50, COGS_PCT_BY_DRIVETRAIN["EV"] - ev_milestones * EV_RND_COGS_REDUCTION)
+        if ev_sales and ev_sales.revenue > 0:
+            rev = ev_sales.revenue
+            cogs = rev * ev_cogs_pct
+            self.ledger.record_sale("EV", rev, cogs)
+        else:
+            rev = 0.0
 
-        # 2. COGS
-        cogs = ev_sales.revenue * COGS_PCT
-        self.ledger.record_cost(cogs, "cogs")
+        # ── 2. SG&A ──
+        sga = SGA_FIXED_STARTUP + rev * SGA_VARIABLE_PCT
+        self.ledger.record_opex(sga, "sga")
 
-        # 3. R&D Allocation - 100% of R&D budget goes to EV
-        r_and_d_total = self.ledger.capital * 0.15  # Use the config pct
+        # ── 3. R&D ──
+        r_and_d_total = max(0, self.ledger.capital * R_AND_D_BUDGET_PCT)
         if r_and_d_total > 0:
             self.pipeline.invest("EV", r_and_d_total)
-            self.ledger.record_cost(r_and_d_total, "r_and_d")
+            self.ledger.record_opex(r_and_d_total, "r_and_d")
 
-        # 4. R&D Milestones
+        # ── 4. R&D Milestones ──
         new_ev = self.pipeline.check_and_award_milestones("EV", EV_RND_MILESTONE_COST)
         if new_ev > 0:
             self._msrp_reduction += new_ev * EV_RND_MSRP_REDUCTION_PCT
             self._range_bonus += new_ev * EV_RND_RANGE_BONUS_MI
 
-        # 5. Capacity Reallocation - expand capacity if sold out
-        sell_out_ratio = ev_sales.units_sold / float(max(1, self.capacity["EV"] + ev_sales.units_sold))
-        # Wait, the available units were reduced by identical amount as units sold. 
-        # Actually in the marketplace, it decrements the original offering.
-        # Let's approximate: if we sold everything we produced, expand.
-        if ev_sales.units_sold > 0 and ev_sales.units_sold >= self.capacity["EV"] * 0.9:
-            shift = CAPACITY_SHIFT_MAX_UNITS  # Max growth possible
+        # ── 5. Capacity expansion ──
+        if ev_sales and ev_sales.units_sold > 0 and ev_sales.units_sold >= self.capacity["EV"] * 0.9:
+            shift = CAPACITY_SHIFT_MAX_UNITS
             retooling_cost = shift * RETOOLING_COST_PER_UNIT
             if self.ledger.capital >= retooling_cost:
                 self.capacity["EV"] += shift
-                self.ledger.record_cost(retooling_cost, "retooling")
+                self.ledger.record_capex(retooling_cost)
+
+        # ── 6. Close the year ──
+        stmt = self.ledger.close_year(env.year, CORPORATE_TAX_RATE, DEPRECIATION_RATE)
+        self._last_stmt = stmt
+
+        # ── 7. Bankruptcy check ──
+        has_future_funding = any(
+            v > 0 for (s, e), v in STARTUP_FUNDING_ROUNDS.items() if e > env.year
+        )
+        if self.ledger.capital < 0 and not has_future_funding:
+            self.is_bankrupt = True
+
+    @staticmethod
+    def _get_funding(year: int) -> float:
+        return EnvironmentService._lookup_schedule(STARTUP_FUNDING_ROUNDS, year)
+
+    @property
+    def ev_cogs_pct(self) -> float:
+        base = COGS_PCT_BY_DRIVETRAIN["EV"]
+        return max(0.50, base - self.pipeline.get_milestones("EV") * EV_RND_COGS_REDUCTION)
 
     def get_state(self) -> dict:
+        stmt = self._last_stmt
+        stmt_dict = stmt.to_dict() if stmt else {}
+        rev = stmt.revenue if stmt else 0.0
         return {
+            "firm": "PureEVStartup",
             "capital": self.ledger.capital,
+            "is_bankrupt": self.is_bankrupt,
             "capacity": dict(self.capacity),
             "total_capacity": sum(self.capacity.values()),
+            "revenue": stmt_dict.get("revenue", 0),
+            "revenue_by_dt": stmt_dict.get("revenue_by_dt", {}),
+            "cogs_by_dt": stmt_dict.get("cogs_by_dt", {}),
+            "gross_profit": stmt_dict.get("gross_profit", 0),
+            "gross_profit_by_dt": stmt_dict.get("gross_profit_by_dt", {}),
+            "sga": stmt_dict.get("sga", 0),
+            "r_and_d": stmt_dict.get("r_and_d", 0),
+            "emissions_penalties": stmt_dict.get("emissions_penalties", 0),
+            "ebitda": stmt_dict.get("ebitda", 0),
+            "depreciation": stmt_dict.get("depreciation", 0),
+            "ebit": stmt_dict.get("ebit", 0),
+            "taxes": stmt_dict.get("taxes", 0),
+            "net_income": stmt_dict.get("net_income", 0),
+            "capex": stmt_dict.get("capex", 0),
+            "external_funding": stmt_dict.get("external_funding", 0),
+            "fcf": stmt_dict.get("fcf", 0),
+            "gross_margin_pct": (stmt.gross_profit / rev) if stmt and rev else 0,
+            "ev_cogs_pct": self.ev_cogs_pct,
+            "ev_gross_margin_pct": (
+                (stmt.gross_profit_by_dt.get("EV", 0) / stmt.revenue_by_dt.get("EV", 1))
+                if stmt and stmt.revenue_by_dt.get("EV") else 0
+            ),
+            "r_and_d_investments": dict(self.pipeline.investments),
+            "milestones_achieved": dict(self.pipeline.milestones_achieved),
             "msrp_reductions": {"EV": self._msrp_reduction},
             "range_bonuses": {"EV": self._range_bonus},
-            "r_and_d": self.pipeline.to_dict(),
             "financials": self.ledger.to_dict(),
         }

@@ -1,8 +1,9 @@
 """
 Strategy engine — the decision-making heuristics for the producer.
 
-Contains the production reallocation and R&D allocation logic,
-separated from the producer agent to keep it testable.
+Contains the production reallocation, R&D allocation, and
+Innovator's Dilemma strategy logic, separated from the producer
+agent to keep it testable.
 """
 
 from __future__ import annotations
@@ -165,3 +166,37 @@ class StrategyEngine:
                 allocation[pt] = per_type
 
         return allocation
+
+    # ── Innovator's Dilemma Logic ──
+
+    @staticmethod
+    def compute_dilemma_ev_tilt(
+        ev_cogs_pct: float,
+        cafe_mandate_pct: float,
+        consecutive_negative_fcf: int,
+    ) -> float:
+        """
+        Return an EV R&D tilt multiplier (1.0 = normal, up to 2.0 = aggressive).
+
+        Captures the dilemma: the legacy firm must over-invest in EV R&D
+        when regulatory pressure rises or when EV COGS nears breakeven,
+        but pulls back into survival mode during financial distress.
+
+        Rules:
+          - CAFE mandate pressure: tilt += 0.5 * (mandate / 0.67)
+          - COGS proximity to breakeven: tilt += 0.5 * max(0, 1 - ev_cogs_pct)
+          - Emergency mode: 2+ consecutive negative FCF years → tilt *= 0.5
+        """
+        # Mandate pressure (scales 0→0.5 as mandate goes 0→0.67)
+        mandate_push = 0.5 * min(1.0, cafe_mandate_pct / 0.67)
+
+        # COGS proximity to breakeven (positive only once COGS < 1.0)
+        cogs_pull = 0.5 * max(0.0, 1.0 - ev_cogs_pct)
+
+        tilt = 1.0 + mandate_push + cogs_pull
+
+        # Emergency mode: survival trumps transition
+        if consecutive_negative_fcf >= 2:
+            tilt *= 0.5
+
+        return min(2.0, tilt)

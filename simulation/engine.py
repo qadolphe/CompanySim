@@ -14,6 +14,7 @@ from domain.consumer.agents import AutoConsumer
 from domain.producer.agents import LegacyAutomaker, PureEVStartup
 from domain.market.marketplace import Marketplace
 from simulation.log import SimulationLog
+from simulation.events import EventDetector
 from simulation.config import (
     START_YEAR,
     END_YEAR,
@@ -59,6 +60,7 @@ class SimulationEngine:
         )
         self.marketplace = Marketplace()
         self.log = SimulationLog()
+        self.event_detector = EventDetector()
 
     def run(self) -> pd.DataFrame:
         """Execute the full simulation timeline. Returns the log DataFrame."""
@@ -91,8 +93,6 @@ class SimulationEngine:
                 if choice_id:
                     success = self.marketplace.attempt_purchase(choice_id)
                     if success:
-                        # Extract product_type from choice_id (e.g. LegacyAutomaker_EV -> EV)
-                        # More resilient: look it up in catalog_view
                         ptype = next(o["product_type"] for o in catalog_view if o["offering_id"] == choice_id)
                         consumer.record_purchase(ptype)
                         buyers += 1
@@ -109,21 +109,27 @@ class SimulationEngine:
         for consumer in self.population:
             consumer.age_one_tick()
 
-        # 7. Log everything
+        # 7. Collect producer states
+        legacy_state = self.legacy_maker.get_state()
+        startup_state = self.startup_maker.get_state()
+        producer_state = {
+            "LegacyAutomaker": legacy_state,
+            "PureEVStartup": startup_state,
+        }
+
+        # 8. Detect events
+        env_dict = env_snapshot.to_dict()
+        tick_events = self.event_detector.detect(
+            env_snapshot.year, env_dict, producer_state
+        )
+
+        # 9. Log everything
         consumer_stats = {
             "consumers_shopping": shoppers,
             "consumers_bought": buyers,
         }
-        
-        # Combine producer states for the log
-        producer_state = {
-            "LegacyAutomaker": self.legacy_maker.get_state(),
-            "PureEVStartup": self.startup_maker.get_state(),
-        }
-        
-        # Merge sales summaries
         sales = self.marketplace.get_sales_summary()
-        
+
         self.log.record(
             env=env_snapshot,
             sales=sales,
@@ -131,13 +137,29 @@ class SimulationEngine:
             consumer_stats=consumer_stats,
         )
 
-        # 7b. Micro-state log for React web player
+        # 10. Micro-state log for React web player
         macro_state = {
-            "legacy_capital": self.legacy_maker.ledger.capital,
-            "startup_capital": self.startup_maker.ledger.capital,
+            # ── Environment ──
             "ev_tax_credit": env_snapshot.ev_tax_credit,
             "gas_price_per_gallon": env_snapshot.gas_price_per_gallon,
             "emissions_penalty_per_unit": env_snapshot.emissions_penalty_per_unit,
+            "cafe_ev_mandate_pct": env_snapshot.cafe_ev_mandate_pct,
+            "charging_infrastructure_index": env_snapshot.charging_infrastructure_index,
+            # ── Legacy Automaker ──
+            "legacy_capital": legacy_state.get("capital", 0),
+            "legacy_revenue": legacy_state.get("revenue", 0),
+            "legacy_net_income": legacy_state.get("net_income", 0),
+            "legacy_fcf": legacy_state.get("fcf", 0),
+            "legacy_ev_cogs_pct": legacy_state.get("ev_cogs_pct", 0),
+            "legacy_gross_margin_pct": legacy_state.get("gross_margin_pct", 0),
+            # ── Startup ──
+            "startup_capital": startup_state.get("capital", 0),
+            "startup_revenue": startup_state.get("revenue", 0),
+            "startup_net_income": startup_state.get("net_income", 0),
+            "startup_fcf": startup_state.get("fcf", 0),
+            "startup_is_bankrupt": startup_state.get("is_bankrupt", False),
+            "startup_ev_cogs_pct": startup_state.get("ev_cogs_pct", 0),
         }
         micro_state = [c.profile.to_micro_dict() for c in self.population]
-        self.log.record_micro(env_snapshot.year, macro_state, micro_state)
+        events_dicts = [e.to_dict() for e in tick_events]
+        self.log.record_micro(env_snapshot.year, macro_state, micro_state, events_dicts)
