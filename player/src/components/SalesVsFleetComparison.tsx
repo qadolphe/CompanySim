@@ -24,20 +24,6 @@ function pct(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-function computeCurrentSalesMix(tick: Tick): Record<VehicleType, number> {
-  const counts: Record<VehicleType, number> = { ICE: 0, HYBRID: 0, EV: 0 };
-  for (const c of tick.micro_state) {
-    if (c.just_bought) counts[c.vehicle] += 1;
-  }
-  const total = counts.ICE + counts.HYBRID + counts.EV;
-  if (total === 0) return { ICE: 0, HYBRID: 0, EV: 0 };
-  return {
-    ICE: (counts.ICE / total) * 100,
-    HYBRID: (counts.HYBRID / total) * 100,
-    EV: (counts.EV / total) * 100,
-  };
-}
-
 function computeFleetMix(tick: Tick): Record<VehicleType, number> {
   const macro = tick.macro_state;
   if (
@@ -125,12 +111,10 @@ function BreakdownCard({
 }
 
 export default function SalesVsFleetComparison({ tick }: SalesVsFleetComparisonProps) {
-  const salesMix = computeCurrentSalesMix(tick);
   const fleetMix = computeFleetMix(tick);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <BreakdownCard title="Current Sales Mix" values={salesMix} />
+    <div className="grid grid-cols-1 gap-4">
       <BreakdownCard title="Total Fleet Mix" values={fleetMix} />
     </div>
   );

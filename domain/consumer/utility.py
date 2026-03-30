@@ -31,6 +31,9 @@ from simulation.config import (
     UTILITY_EARLY_DECAY_YEARS,
     UTILITY_DEMOGRAPHIC_SHIELD_MAX,
     TECH_INERTIA_BONUS,
+    UTILITY_SWITCHING_PENALTY_BASE,
+    UTILITY_SWITCH_TO_EV_EXTRA,
+    UTILITY_SAME_DRIVETRAIN_BONUS,
     UTILITY_RENTER_PUBLIC_CHARGING_BASE,
     UTILITY_RENTER_PUBLIC_CHARGING_INCOME_RELIEF,
 )
@@ -122,13 +125,46 @@ class VehicleUtilityCalculator(UtilityCalculator):
         if offering["product_type"] == "EV":
             ownership_hassle = self._compute_ownership_hassle(profile, env)
 
+        # Switching between drivetrains carries behavioral and practical friction.
+        switching_penalty = self._compute_switching_penalty(profile, offering, env)
+
         return (
             -alpha * tco_normalized
             + green_bonus
             + tech_inertia
             - range_anxiety
             - ownership_hassle
+            - switching_penalty
         )
+
+    @staticmethod
+    def _compute_switching_penalty(
+        profile: ConsumerProfile,
+        offering: dict,
+        env: PolicySnapshot,
+    ) -> float:
+        current = profile.current_vehicle
+        target = offering["product_type"]
+        if current is None:
+            return 0.0
+
+        if current == target:
+            return -UTILITY_SAME_DRIVETRAIN_BONUS
+
+        penalty = UTILITY_SWITCHING_PENALTY_BASE
+        if current in ("ICE", "HYBRID") and target == "EV":
+            infra_relief = max(0.0, min(1.0, env.charging_infrastructure_index))
+            green_relief = max(0.0, min(1.0, profile.green_preference))
+            transition_extra = (
+                UTILITY_SWITCH_TO_EV_EXTRA
+                * (1.0 - 0.55 * infra_relief)
+                * (1.0 - 0.45 * green_relief)
+            )
+            penalty += max(0.0, transition_extra)
+        elif current == "EV" and target in ("ICE", "HYBRID"):
+            penalty += 0.04
+
+        return penalty
 
     def _compute_tco(
         self,
@@ -173,7 +209,15 @@ class VehicleUtilityCalculator(UtilityCalculator):
         if offering["product_type"] == "EV":
             # EV: cost = miles × kWh/mile × $/kWh
             kwh_per_mile = offering.get("kwh_per_mile") or 0.30
-            return miles * kwh_per_mile * env.electricity_price_per_kwh
+            effective_kwh_price = env.electricity_price_per_kwh
+            if not profile.is_homeowner:
+                income_factor = min(
+                    profile.annual_income / HOMEOWNER_INCOME_THRESHOLD,
+                    1.0,
+                )
+                public_charging_premium = 1.55 - 0.25 * income_factor
+                effective_kwh_price *= max(1.0, public_charging_premium)
+            return miles * kwh_per_mile * effective_kwh_price
         else:
             # ICE / Hybrid: cost = (miles / MPG) × $/gallon
             mpg = offering.get("mpg") or 30.0

@@ -53,10 +53,10 @@ class SimulationEngine:
             initial_capital=initial_capital,
             production_capacity=production_capacity or PRODUCTION_CAPACITY,
         )
-        # Startup gets 20% of legacy capital and 5K EV capacity (Tesla/Rivian proxy)
+        # Startup gets 20% of legacy capital and constrained launch EV capacity.
         self.startup_maker = PureEVStartup(
             initial_capital=initial_capital * 0.20,
-            production_capacity=5_000,
+            production_capacity=700,
         )
         self.marketplace = Marketplace()
         self.log = SimulationLog()

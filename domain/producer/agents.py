@@ -35,6 +35,8 @@ from simulation.config import (
     EV_RND_RANGE_BONUS_MI,
     HYBRID_RND_MILESTONE_COST,
     HYBRID_RND_MSRP_REDUCTION_PCT,
+    EV_MAX_MSRP_REDUCTION_PCT,
+    HYBRID_MAX_MSRP_REDUCTION_PCT,
     RETOOLING_COST_PER_UNIT,
     R_AND_D_PCT_LEGACY,
     R_AND_D_PCT_STARTUP,
@@ -92,6 +94,10 @@ def _global_ev_msrp_factor(env: PolicySnapshot) -> float:
     """Exogenous global battery curve pass-through to EV MSRP."""
     factor = env.battery_cost_index ** GLOBAL_EV_MSRP_PASS_THROUGH
     return max(GLOBAL_EV_MSRP_MIN_FACTOR, min(1.0, factor))
+
+
+def _clamp_reduction(value: float, max_reduction: float) -> float:
+    return max(0.0, min(max_reduction, value))
 
 
 def _prior_year_revenue(ledger: CapitalLedger, fallback_current_year: float) -> float:
@@ -253,11 +259,17 @@ class LegacyAutomaker(ProducerAgent):
     def _apply_milestones(self) -> None:
         new_ev = self.pipeline.check_and_award_milestones("EV", EV_RND_MILESTONE_COST)
         if new_ev > 0:
-            self._msrp_reductions["EV"] += new_ev * EV_RND_MSRP_REDUCTION_PCT
+            self._msrp_reductions["EV"] = _clamp_reduction(
+                self._msrp_reductions["EV"] + new_ev * EV_RND_MSRP_REDUCTION_PCT,
+                EV_MAX_MSRP_REDUCTION_PCT,
+            )
             self._range_bonuses["EV"] += new_ev * EV_RND_RANGE_BONUS_MI
         new_hybrid = self.pipeline.check_and_award_milestones("HYBRID", HYBRID_RND_MILESTONE_COST)
         if new_hybrid > 0:
-            self._msrp_reductions["HYBRID"] += new_hybrid * HYBRID_RND_MSRP_REDUCTION_PCT
+            self._msrp_reductions["HYBRID"] = _clamp_reduction(
+                self._msrp_reductions["HYBRID"] + new_hybrid * HYBRID_RND_MSRP_REDUCTION_PCT,
+                HYBRID_MAX_MSRP_REDUCTION_PCT,
+            )
 
     @property
     def ev_cogs_pct(self) -> float:
@@ -412,7 +424,10 @@ class PureEVStartup(ProducerAgent):
         # ── 4. R&D Milestones ──
         new_ev = self.pipeline.check_and_award_milestones("EV", EV_RND_MILESTONE_COST)
         if new_ev > 0:
-            self._msrp_reduction += new_ev * EV_RND_MSRP_REDUCTION_PCT
+            self._msrp_reduction = _clamp_reduction(
+                self._msrp_reduction + new_ev * EV_RND_MSRP_REDUCTION_PCT,
+                EV_MAX_MSRP_REDUCTION_PCT,
+            )
             self._range_bonus += new_ev * EV_RND_RANGE_BONUS_MI
 
         # ── 5. Capacity expansion ──
