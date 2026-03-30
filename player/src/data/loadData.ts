@@ -1,12 +1,20 @@
-import type { SimulationData } from "../types";
+import type { SimulationData, ScenarioDatasets } from "../types";
 
-export async function loadSimulationData(): Promise<SimulationData> {
-  const scenario = new URLSearchParams(window.location.search).get("scenario");
-  const normalized = (scenario || "baseline").toLowerCase();
-  const file = normalized === "trump"
-    ? "/simulation_micro_trump.json"
-    : "/simulation_micro_baseline.json";
+const SCENARIO_FILES = {
+  baseline: "/simulation_micro_baseline.json",
+  trump: "/simulation_micro_trump.json",
+} as const;
+
+async function fetchScenario(file: string): Promise<SimulationData> {
   const res = await fetch(file);
-  if (!res.ok) throw new Error(`Failed to load simulation data: ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to load ${file}: ${res.status}`);
   return res.json();
+}
+
+export async function loadAllScenarios(): Promise<ScenarioDatasets> {
+  const [baseline, trump] = await Promise.all([
+    fetchScenario(SCENARIO_FILES.baseline),
+    fetchScenario(SCENARIO_FILES.trump),
+  ]);
+  return { baseline, trump };
 }

@@ -1,15 +1,16 @@
 import type { Tick } from "../types";
-import SwarmArena from "./SwarmArena";
+import AggregateSwarm from "./AggregateSwarm";
 
 interface MicroSwarmProps {
   tick: Tick;
+  prevTick: Tick | null;
 }
 
-export default function MicroSwarm({ tick }: MicroSwarmProps) {
+export default function MicroSwarm({ tick, prevTick }: MicroSwarmProps) {
   return (
     <div className="flex flex-col p-4 min-h-0">
       <div className="flex-1 min-h-0">
-        <SwarmArena consumers={tick.micro_state} />
+        <AggregateSwarm tick={tick} prevTick={prevTick} />
       </div>
 
       {/* Legend */}
@@ -27,8 +28,8 @@ export default function MicroSwarm({ tick }: MicroSwarmProps) {
           EV
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full border-2 border-emerald-400 bg-transparent" />
-          Just Bought
+          <span className="inline-block w-3 h-3 rounded-full border-2 border-yellow-400 bg-yellow-100" />
+          Flow (1 dot ≈ 500)
         </span>
       </div>
     </div>

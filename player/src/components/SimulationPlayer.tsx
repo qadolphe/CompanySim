@@ -1,25 +1,48 @@
-import { useState, useEffect, useCallback } from "react";
-import type { SimulationData } from "../types";
-import { loadSimulationData } from "../data/loadData";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { Scenario, ScenarioDatasets } from "../types";
+import { loadAllScenarios } from "../data/loadData";
 import ControlBar from "./ControlBar";
-import MacroDashboard from "./MacroDashboard";
+import DashboardTabs from "./DashboardTabs";
 import MicroSwarm from "./MicroSwarm";
 
 export default function SimulationPlayer() {
-  const [data, setData] = useState<SimulationData | null>(null);
+  const [datasets, setDatasets] = useState<ScenarioDatasets | null>(null);
+  const [scenario, setScenario] = useState<Scenario>("baseline");
   const [step, setStep] = useState(0);
+  const prevStepRef = useRef(0);
 
   useEffect(() => {
-    loadSimulationData().then(setData);
+    loadAllScenarios().then(setDatasets);
   }, []);
 
+  const data = datasets ? datasets[scenario] : null;
   const maxStep = data ? data.length - 1 : 0;
 
-  const prev = useCallback(() => setStep((s) => Math.max(s - 1, 0)), []);
-  const next = useCallback(
-    () => setStep((s) => Math.min(s + 1, maxStep)),
-    [maxStep]
+  // Clamp step when switching scenarios
+  const switchScenario = useCallback(
+    (s: Scenario) => {
+      setScenario(s);
+      if (datasets) {
+        const newMax = datasets[s].length - 1;
+        setStep((prev) => Math.min(prev, newMax));
+      }
+    },
+    [datasets],
   );
+
+  const prev = useCallback(() => {
+    setStep((s) => {
+      prevStepRef.current = s;
+      return Math.max(s - 1, 0);
+    });
+  }, []);
+
+  const next = useCallback(() => {
+    setStep((s) => {
+      prevStepRef.current = s;
+      return Math.min(s + 1, maxStep);
+    });
+  }, [maxStep]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -39,18 +62,21 @@ export default function SimulationPlayer() {
   }
 
   const tick = data[step];
+  const prevTick = step > 0 ? data[step - 1] : null;
   const chartData = data.slice(0, step + 1);
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 text-gray-900">
-      <div className="flex-1 grid grid-cols-[420px_1fr] min-h-0">
-        <MacroDashboard tick={tick} chartData={chartData} />
-        <MicroSwarm tick={tick} />
+      <div className="flex-1 grid grid-cols-[440px_1fr] min-h-0">
+        <DashboardTabs tick={tick} chartData={chartData} />
+        <MicroSwarm tick={tick} prevTick={prevTick} />
       </div>
       <ControlBar
         year={tick.year}
         step={step}
         totalSteps={data.length}
+        scenario={scenario}
+        onScenarioChange={switchScenario}
         onPrev={prev}
         onNext={next}
       />
