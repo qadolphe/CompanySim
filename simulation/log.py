@@ -156,6 +156,12 @@ class SimulationLog:
         if consumer_stats:
             row.update(consumer_stats)
 
+        # Keep fleet composition columns stable for downstream analytics.
+        row.setdefault("fleet_ice_pct", 0.0)
+        row.setdefault("fleet_hybrid_pct", 0.0)
+        row.setdefault("fleet_ev_pct", 0.0)
+        row.setdefault("fleet_total_vehicles", 0)
+
         self._records.append(row)
 
     def to_dataframe(self) -> pd.DataFrame:

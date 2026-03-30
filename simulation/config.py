@@ -125,6 +125,8 @@ UTILITY_DELTA_MAX: float = 0.4
 HOMEOWNER_INCOME_THRESHOLD: float = 75_000.0
 HOMEOWNER_PROB_BASE: float = 0.30
 HOMEOWNER_PROB_MAX: float = 0.85
+UTILITY_RENTER_PUBLIC_CHARGING_BASE: float = 0.26
+UTILITY_RENTER_PUBLIC_CHARGING_INCOME_RELIEF: float = 0.10
 
 
 # ═══════════════════════════════════════════════════════════════════

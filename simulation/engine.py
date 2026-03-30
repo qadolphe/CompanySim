@@ -109,6 +109,20 @@ class SimulationEngine:
         for consumer in self.population:
             consumer.age_one_tick()
 
+        # 7.5 Fleet composition (active cars on road)
+        fleet_counts = {"ICE": 0, "HYBRID": 0, "EV": 0}
+        for consumer in self.population:
+            vehicle = consumer.profile.current_vehicle
+            if vehicle in fleet_counts:
+                fleet_counts[vehicle] += 1
+        fleet_total = max(1, sum(fleet_counts.values()))
+        fleet_pct = {
+            "fleet_ice_pct": fleet_counts["ICE"] / fleet_total,
+            "fleet_hybrid_pct": fleet_counts["HYBRID"] / fleet_total,
+            "fleet_ev_pct": fleet_counts["EV"] / fleet_total,
+            "fleet_total_vehicles": fleet_total,
+        }
+
         # 7. Collect producer states
         legacy_state = self.legacy_maker.get_state()
         startup_state = self.startup_maker.get_state()
@@ -127,6 +141,7 @@ class SimulationEngine:
         consumer_stats = {
             "consumers_shopping": shoppers,
             "consumers_bought": buyers,
+            **fleet_pct,
         }
         sales = self.marketplace.get_sales_summary()
 
@@ -160,8 +175,14 @@ class SimulationEngine:
             "startup_fcf": startup_state.get("fcf", 0),
             "startup_is_bankrupt": startup_state.get("is_bankrupt", False),
             "startup_ev_cogs_pct": startup_state.get("ev_cogs_pct", 0),
+            "startup_gross_margin_pct": startup_state.get("gross_margin_pct", 0),
             "startup_vc_funding_raised": startup_state.get("vc_funding_raised", 0),
             "startup_total_dilution": startup_state.get("total_dilution", 0),
+            # ── Fleet Composition ──
+            "fleet_ice_pct": fleet_pct["fleet_ice_pct"],
+            "fleet_hybrid_pct": fleet_pct["fleet_hybrid_pct"],
+            "fleet_ev_pct": fleet_pct["fleet_ev_pct"],
+            "fleet_total_vehicles": fleet_pct["fleet_total_vehicles"],
         }
         micro_state = [c.profile.to_micro_dict() for c in self.population]
         events_dicts = [e.to_dict() for e in tick_events]

@@ -372,6 +372,23 @@ class TestOwnershipHassle:
         
         assert h_short < h_long
 
+    def test_renter_keeps_persistent_hassle_at_high_infrastructure(self) -> None:
+        from domain.consumer.utility import VehicleUtilityCalculator
+
+        renter = _make_profile(is_homeowner=False, annual_income=70_000)
+        high_infra_env = PolicySnapshot(
+            year=2035,
+            ev_tax_credit=0,
+            gas_price_per_gallon=3.5,
+            electricity_price_per_kwh=0.14,
+            interest_rate=0.06,
+            emissions_penalty_per_unit=0,
+            cafe_ev_mandate_pct=0.5,
+            charging_infrastructure_index=1.0,
+        )
+        hassle = VehicleUtilityCalculator._compute_ownership_hassle(renter, high_infra_env)
+        assert hassle > 0.0
+
     def test_very_low_infrastructure_has_super_linear_penalty(self) -> None:
         """Infrastructure below the critical threshold should steepen EV ownership hassle."""
         from domain.consumer.utility import VehicleUtilityCalculator

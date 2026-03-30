@@ -4,6 +4,7 @@ Unit tests for the StrategyEngine — production reallocation and R&D logic.
 
 import pytest
 
+from domain.environment.models import PolicySnapshot
 from domain.producer.strategy import StrategyEngine
 from domain.market.models import SalesRecord
 
@@ -70,6 +71,27 @@ class TestCapacityShifts:
                 f"{ptype} capacity would go negative: "
                 f"{capacity[ptype]} + {shifts[ptype]}"
             )
+
+    def test_high_penalty_shifts_away_from_ice_even_with_demand(self) -> None:
+        sales = {
+            "ICE": SalesRecord("ICE", "ICE", units_sold=590, revenue=18_880_000),
+            "HYBRID": SalesRecord("HYBRID", "HYBRID", units_sold=120, revenue=4_200_000),
+            "EV": SalesRecord("EV", "EV", units_sold=130, revenue=5_460_000),
+        }
+        capacity = {"ICE": 600, "HYBRID": 250, "EV": 150}
+        high_penalty_env = PolicySnapshot(
+            year=2031,
+            ev_tax_credit=0,
+            gas_price_per_gallon=4.2,
+            electricity_price_per_kwh=0.18,
+            interest_rate=0.06,
+            emissions_penalty_per_unit=3_500,
+            cafe_ev_mandate_pct=0.50,
+            charging_infrastructure_index=0.6,
+        )
+        shifts = StrategyEngine.compute_capacity_shifts(sales, capacity, high_penalty_env)
+        assert shifts["ICE"] < 0
+        assert shifts["HYBRID"] + shifts["EV"] > 0
 
 
 class TestRetoolingCost:

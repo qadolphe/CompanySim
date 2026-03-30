@@ -235,7 +235,7 @@ class LegacyAutomaker(ProducerAgent):
         self._apply_milestones()
 
         # ── 6. Capacity Reallocation ──
-        shifts = self.strategy.compute_capacity_shifts(sales, self.capacity)
+        shifts = self.strategy.compute_capacity_shifts(sales, self.capacity, env)
         retooling_cost = self.strategy.compute_retooling_cost(shifts)
         if retooling_cost > 0:
             self.ledger.record_capex(retooling_cost)

@@ -22,6 +22,12 @@ export interface MacroState {
   startup_fcf: number;
   startup_is_bankrupt: boolean;
   startup_ev_cogs_pct: number;
+  startup_gross_margin_pct: number;
+
+  fleet_ice_pct: number;
+  fleet_hybrid_pct: number;
+  fleet_ev_pct: number;
+  fleet_total_vehicles: number;
 }
 
 export interface SimulationEvent {

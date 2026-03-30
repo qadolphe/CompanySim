@@ -8,6 +8,7 @@ agent to keep it testable.
 
 from __future__ import annotations
 
+from domain.environment.models import PolicySnapshot
 from domain.market.models import SalesRecord
 from simulation.config import (
     CAPACITY_SHIFT_MAX_UNITS,
@@ -31,14 +32,16 @@ class StrategyEngine:
     def compute_capacity_shifts(
         sales: dict[str, SalesRecord],
         capacity: dict[str, int],
+        env: PolicySnapshot | None = None,
     ) -> dict[str, int]:
         """
         Determine how many units to shift for each product type.
 
-        Rules:
-          - demand_ratio > 0.90 → increase (sold out)
-          - demand_ratio < 0.50 → decrease (underperforming)
-          - Shifts are zero-sum: net shifts must equal 0.
+                Uses a soft score per drivetrain instead of hard thresholds.
+                Score combines:
+                    - Demand signal from sell-through
+                    - Policy pressure (penalties + mandate) when env is provided
+                Shifts remain zero-sum after normalization.
 
         Returns a dict of {product_type: shift_amount} where
         positive = increase, negative = decrease.
@@ -49,24 +52,55 @@ class StrategyEngine:
             int(total_capacity * CAPACITY_SHIFT_PCT),
         )
 
-        raw_shifts: dict[str, int] = {}
+        if total_capacity <= 0:
+            return {ptype: 0 for ptype in capacity}
+
+        scores: dict[str, float] = {}
         for ptype, cap in capacity.items():
             if cap == 0:
-                raw_shifts[ptype] = 0
+                scores[ptype] = -10.0
                 continue
 
             record = sales.get(ptype)
             units_sold = record.units_sold if record else 0
             demand_ratio = units_sold / cap
 
-            if demand_ratio > 0.90:
-                raw_shifts[ptype] = max_shift
-            elif demand_ratio < 0.50:
-                raw_shifts[ptype] = -max_shift
-            else:
-                raw_shifts[ptype] = 0
+            # Center around replacement sell-through and clip extremes.
+            demand_signal = max(-1.0, min(1.0, (demand_ratio - 0.65) / 0.35))
+            policy_signal = StrategyEngine._policy_capacity_bias(ptype, env)
+            scores[ptype] = demand_signal + policy_signal
+
+        weighted_mean = sum(scores[p] * capacity[p] for p in capacity) / total_capacity
+        raw_shifts: dict[str, int] = {}
+        for ptype, score in scores.items():
+            centered = score - weighted_mean
+            raw = int(round(centered * 0.65 * max_shift))
+
+            # Preserve directional intent for meaningful but modest score differences.
+            if raw == 0 and abs(centered) > 0.20:
+                raw = 1 if centered > 0 else -1
+
+            raw_shifts[ptype] = max(-max_shift, min(max_shift, raw))
 
         return StrategyEngine._enforce_zero_sum(raw_shifts, capacity)
+
+    @staticmethod
+    def _policy_capacity_bias(ptype: str, env: PolicySnapshot | None) -> float:
+        """Soft policy-aware bias that nudges capacity toward compliance."""
+        if env is None:
+            return 0.0
+
+        penalty_pressure = min(1.0, max(0.0, env.emissions_penalty_per_unit / 5_000.0))
+        mandate_pressure = min(1.0, max(0.0, env.cafe_ev_mandate_pct / 0.67))
+        transition_pressure = 0.65 * penalty_pressure + 0.35 * mandate_pressure
+
+        if ptype == "ICE":
+            return -0.90 * transition_pressure
+        if ptype == "HYBRID":
+            return 0.45 * transition_pressure + 0.10 * penalty_pressure
+        if ptype == "EV":
+            return 0.55 * transition_pressure + 0.15 * mandate_pressure
+        return 0.0
 
     @staticmethod
     def _enforce_zero_sum(

@@ -123,3 +123,22 @@ class TestSimulationLog:
         df = log.to_dataframe()
         assert "consumers_shopping" in df.columns
         assert df.iloc[0]["consumers_bought"] == 120
+
+    def test_fleet_metrics_logged(self, log, sample_env, sample_sales, sample_producer_state) -> None:
+        log.record(
+            sample_env,
+            sample_sales,
+            sample_producer_state,
+            consumer_stats={
+                "consumers_shopping": 200,
+                "consumers_bought": 150,
+                "fleet_ice_pct": 0.62,
+                "fleet_hybrid_pct": 0.23,
+                "fleet_ev_pct": 0.15,
+                "fleet_total_vehicles": 1_000,
+            },
+        )
+        df = log.to_dataframe()
+        assert df.iloc[0]["fleet_ice_pct"] == pytest.approx(0.62)
+        assert df.iloc[0]["fleet_hybrid_pct"] == pytest.approx(0.23)
+        assert df.iloc[0]["fleet_ev_pct"] == pytest.approx(0.15)

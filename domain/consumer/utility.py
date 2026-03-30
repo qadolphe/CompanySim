@@ -31,6 +31,8 @@ from simulation.config import (
     UTILITY_EARLY_DECAY_YEARS,
     UTILITY_DEMOGRAPHIC_SHIELD_MAX,
     TECH_INERTIA_BONUS,
+    UTILITY_RENTER_PUBLIC_CHARGING_BASE,
+    UTILITY_RENTER_PUBLIC_CHARGING_INCOME_RELIEF,
 )
 
 
@@ -256,6 +258,26 @@ class VehicleUtilityCalculator(UtilityCalculator):
             gap = (UTILITY_INFRA_CRITICAL_THRESHOLD - env.charging_infrastructure_index)
             cliff = 1.0 + UTILITY_INFRA_CRITICAL_MULTIPLIER * (gap ** 2)
             infrastructure_multiplier *= cliff
+
+        # Renters retain persistent public-charging inconvenience even when
+        # infrastructure is widespread, while still benefiting from infra growth.
+        if not profile.is_homeowner:
+            renter_income_factor = min(
+                profile.annual_income / HOMEOWNER_INCOME_THRESHOLD,
+                1.0,
+            )
+            persistent_public_inconvenience = (
+                UTILITY_RENTER_PUBLIC_CHARGING_BASE
+                - UTILITY_RENTER_PUBLIC_CHARGING_INCOME_RELIEF * renter_income_factor
+            )
+            persistent_public_inconvenience = max(
+                0.0,
+                min(0.85, persistent_public_inconvenience),
+            )
+            infrastructure_multiplier = (
+                persistent_public_inconvenience
+                + (1.0 - persistent_public_inconvenience) * infrastructure_multiplier
+            )
 
         years_elapsed = max(0, env.year - START_YEAR)
         early_multiplier = 1.0 + UTILITY_EARLY_YEARS_AMPLIFIER * math.exp(

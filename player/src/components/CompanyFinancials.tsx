@@ -1,6 +1,6 @@
 import {
-  LineChart,
-  Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -61,7 +61,9 @@ export default function CompanyFinancials({
   const revenue = getField(macro, company, "revenue");
   const netIncome = getField(macro, company, "net_income");
   const fcf = getField(macro, company, "fcf");
-  const grossMargin = company === "legacy" ? macro.legacy_gross_margin_pct : null;
+  const grossMargin = company === "legacy"
+    ? macro.legacy_gross_margin_pct
+    : macro.startup_gross_margin_pct;
   const evCogs = getField(macro, company, "ev_cogs_pct");
 
   // Chart data
@@ -119,12 +121,12 @@ export default function CompanyFinancials({
         }
       >
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={points}>
+          <BarChart data={points}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" />
-            <YAxis tickFormatter={formatYAxis} tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" width={65} />
+            <YAxis domain={[0, "auto"]} tickFormatter={formatYAxis} tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" width={65} />
             <Tooltip formatter={(val) => formatYAxis(Number(val))} contentStyle={tooltipStyle} />
-            <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 3.5 }} animationDuration={400} />
+            <Bar dataKey="revenue" name="Revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} />
             {policyEvents.map((ev, i) => (
               <ReferenceLine
                 key={`rev-${ev.year}-${i}`}
@@ -135,20 +137,29 @@ export default function CompanyFinancials({
                 label={{ value: ev.label, position: "top", fontSize: 9, fill: SEVERITY_COLOR[ev.severity] }}
               />
             ))}
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
       </ChartCard>
 
       {/* Net Income chart */}
       <ChartCard title={`${companyLabel} — Net Income`}>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={points}>
+          <BarChart data={points}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" />
-            <YAxis tickFormatter={formatYAxis} tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" width={65} />
+            <YAxis
+              domain={([dataMin, dataMax]) => {
+                const absMax = Math.max(Math.abs(dataMin), Math.abs(dataMax), 1);
+                return [-absMax, absMax];
+              }}
+              tickFormatter={formatYAxis}
+              tick={{ fontSize: 11, fill: "#6b7280" }}
+              stroke="#d1d5db"
+              width={65}
+            />
             <Tooltip formatter={(val) => formatYAxis(Number(val))} contentStyle={tooltipStyle} />
             <ReferenceLine y={0} stroke="#d1d5db" strokeWidth={1} />
-            <Line type="monotone" dataKey="netIncome" name="Net Income" stroke={isLegacy ? "#ef4444" : "#10b981"} strokeWidth={2.5} dot={{ r: 3.5 }} animationDuration={400} />
+            <Bar dataKey="netIncome" name="Net Income" fill={isLegacy ? "#ef4444" : "#10b981"} radius={[6, 6, 0, 0]} />
             {policyEvents.map((ev, i) => (
               <ReferenceLine
                 key={`ni-${ev.year}-${i}`}
@@ -159,20 +170,29 @@ export default function CompanyFinancials({
                 label={{ value: ev.label, position: "top", fontSize: 9, fill: SEVERITY_COLOR[ev.severity] }}
               />
             ))}
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
       </ChartCard>
 
       {/* FCF chart */}
       <ChartCard title={`${companyLabel} — Free Cash Flow`}>
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={points}>
+          <BarChart data={points}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" />
-            <YAxis tickFormatter={formatYAxis} tick={{ fontSize: 11, fill: "#6b7280" }} stroke="#d1d5db" width={65} />
+            <YAxis
+              domain={([dataMin, dataMax]) => {
+                const absMax = Math.max(Math.abs(dataMin), Math.abs(dataMax), 1);
+                return [-absMax, absMax];
+              }}
+              tickFormatter={formatYAxis}
+              tick={{ fontSize: 11, fill: "#6b7280" }}
+              stroke="#d1d5db"
+              width={65}
+            />
             <Tooltip formatter={(val) => formatYAxis(Number(val))} contentStyle={tooltipStyle} />
             <ReferenceLine y={0} stroke="#d1d5db" strokeWidth={1} />
-            <Line type="monotone" dataKey="fcf" name="Free Cash Flow" stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 3.5 }} animationDuration={400} />
+            <Bar dataKey="fcf" name="Free Cash Flow" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
             {policyEvents.map((ev, i) => (
               <ReferenceLine
                 key={`fcf-${ev.year}-${i}`}
@@ -183,7 +203,7 @@ export default function CompanyFinancials({
                 label={{ value: ev.label, position: "top", fontSize: 9, fill: SEVERITY_COLOR[ev.severity] }}
               />
             ))}
-          </LineChart>
+          </BarChart>
         </ResponsiveContainer>
       </ChartCard>
     </div>
