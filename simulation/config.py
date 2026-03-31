@@ -321,5 +321,137 @@ GAS_PRICE_ANNUAL_GROWTH: float = 0.025
 ELECTRICITY_PRICE_BASE: float = 0.16
 ELECTRICITY_PRICE_ANNUAL_GROWTH: float = 0.02
 
+
+# ═══════════════════════════════════════════════════════════════════
+# BOM (Bill of Materials) — Absolute Unit Costs
+# Source: UBS Evidence Lab, Munro & Associates teardowns, BNEF
+# ═══════════════════════════════════════════════════════════════════
+
+# Base BOM cost per vehicle in 2024 dollars.
+# ICE: mature powertrains, incremental material inflation.
+# EV: battery pack is ~40% of BOM; rest is structure/electronics.
+# HYBRID: shares ICE platform + small traction battery.
+BOM_BASE_ICE: float = 22_000.0
+BOM_BASE_HYBRID: float = 28_000.0
+BOM_BASE_EV: float = 38_000.0
+
+# ICE/Hybrid material inflation (CPI producer prices, metals & plastics)
+BOM_ICE_INFLATION_RATE: float = 0.015      # 1.5%/yr
+# Hybrid shares 92% of ICE powertrain tooling → 8% platform discount
+BOM_HYBRID_ICE_PLATFORM_DISCOUNT: float = 0.92
+
+# ── Battery cost curve (Wright's Law) ──
+# Source: BNEF 2024 Battery Price Survey
+BATTERY_COST_PER_KWH_2024: float = 140.0   # $/kWh pack-level 2024
+BATTERY_COST_FLOOR_PER_KWH: float = 60.0   # Theoretical floor
+BATTERY_WRIGHTS_LEARNING_RATE: float = 0.18 # 18% cost reduction per cumulative doubling
+BATTERY_ANNUAL_DECLINE_RATE: float = 0.09   # ~9%/yr secular trend (time proxy)
+EV_BATTERY_CAPACITY_KWH: float = 75.0      # Average pack size (kWh)
+EV_BOM_BATTERY_FRACTION: float = 0.40       # Battery fraction of EV BOM
+EV_BOM_NON_BATTERY_INFLATION: float = 0.01  # 1%/yr for non-battery EV components
+
+# ── Material cost index (shared supplier pressure) ──
+MATERIAL_COST_INDEX_BASE: float = 1.00
+MATERIAL_COST_INFLATION: float = 0.015      # 1.5%/yr CPI-linked
+
+# ── Vehicle depreciation (residual value as fraction of MSRP) ──
+# Source: iSeeCars, Black Book residual value studies
+# Key: vehicle_age_years → residual fraction
+DEPRECIATION_CURVE_ICE: dict[int, float] = {
+    0: 1.00, 1: 0.85, 2: 0.73, 3: 0.63, 4: 0.55,
+    5: 0.48, 6: 0.42, 7: 0.37, 8: 0.33, 9: 0.29, 10: 0.26,
+}
+DEPRECIATION_CURVE_HYBRID: dict[int, float] = {
+    0: 1.00, 1: 0.84, 2: 0.72, 3: 0.62, 4: 0.54,
+    5: 0.47, 6: 0.41, 7: 0.36, 8: 0.32, 9: 0.28, 10: 0.25,
+}
+# EV: steeper early depreciation (battery uncertainty) but improves over time
+DEPRECIATION_CURVE_EV: dict[int, float] = {
+    0: 1.00, 1: 0.80, 2: 0.67, 3: 0.57, 4: 0.49,
+    5: 0.43, 6: 0.38, 7: 0.34, 8: 0.31, 9: 0.28, 10: 0.26,
+}
+
+# ── Annual insurance cost by drivetrain ──
+# Source: Insurance Institute, NerdWallet 2024 averages
+ANNUAL_INSURANCE_ICE: float = 1_200.0
+ANNUAL_INSURANCE_HYBRID: float = 1_300.0
+ANNUAL_INSURANCE_EV: float = 1_500.0       # Higher due to expensive battery repairs
+
+# ── Maintenance escalation ──
+MAINTENANCE_ESCALATION_ICE: float = 0.03    # 3%/yr (aging parts, wear)
+MAINTENANCE_ESCALATION_HYBRID: float = 0.025
+MAINTENANCE_ESCALATION_EV: float = 0.005    # Near-flat (fewer moving parts)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Producer Structural Costs — Legacy vs. Startup Differentiation
+# ═══════════════════════════════════════════════════════════════════
+
+# ── Legacy Automaker (Union + Dealer model) ──
+UNION_LABOR_PREMIUM: float = 1.08           # 8% adder on labor portion of BOM (UAW contracts)
+BOM_LABOR_FRACTION: float = 0.25            # ~25% of BOM is direct labor
+DEALER_DISTRIBUTION_MARKUP: float = 2_500.0 # $/vehicle (dealer margin + logistics + lot)
+# Company-level dealer-service-network overhead (annual fixed cost)
+COMPANY_MAINTENANCE_COST_LEGACY: float = 80_000_000.0  # $80M/yr
+
+# Plant tooling amortization per unit (legacy)
+PLANT_TOOLING_PER_UNIT: dict[str, float] = {
+    "ICE": 800.0,      # Mature lines, fully amortized
+    "HYBRID": 600.0,   # Shared ICE platform → lower incremental tooling
+    "EV": 3_000.0,     # New production lines, not yet at scale
+}
+# EV tooling declines as volume grows (manufacturing learning)
+LEGACY_EV_TOOLING_LEARNING_RATE: float = 0.12
+LEGACY_EV_TOOLING_FLOOR: float = 1_200.0
+
+# ── Pure-EV Startup (Direct-to-Consumer model) ──
+DTC_DISTRIBUTION_SAVINGS: float = 1_800.0   # $/vehicle (no dealer → online + company stores)
+# Company-level service center overhead (annual fixed cost, lower than dealer network)
+COMPANY_MAINTENANCE_COST_STARTUP: float = 20_000_000.0  # $20M/yr
+
+STARTUP_PLANT_TOOLING_BASE: float = 4_500.0  # $/unit (fully burdened skateboard platform)
+STARTUP_TOOLING_LEARNING_RATE: float = 0.15  # Faster learning (clean-sheet manufacturing)
+STARTUP_TOOLING_FLOOR: float = 900.0
+
+# ── R&D milestone COGS reduction (absolute $ per milestone) ──
+EV_RND_COGS_REDUCTION_DOLLARS: float = 800.0   # $/unit per R&D milestone achieved
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Consumer TCO & Behavioral Parameters
+# ═══════════════════════════════════════════════════════════════════
+
+TCO_HORIZON_YEARS: int = 5
+LOAN_TERM_MONTHS: int = 60
+AFFORDABILITY_MAX_DTI: float = 0.12         # Max 12% of monthly income for car payment
+
+# ── Charging access (replaces is_homeowner as sole proxy) ──
+HOMEOWNER_CAN_CHARGE_PROB: float = 0.90     # 90% of homeowners can charge at home
+RENTER_CAN_CHARGE_PROB: float = 0.15        # 15% of renters have garage/dedicated parking
+
+# ── Behavioral multipliers ──
+INERTIA_DISCOUNT_PCT: float = 0.06          # 6% TCO discount for same-drivetrain familiarity
+CHARGING_INCONVENIENCE_COST: float = 4_000.0  # $ added to EV TCO if can't charge at home
+FAST_CHARGER_RELIEF_THRESHOLD: float = 0.30   # Below this, full inconvenience cost applies
+FAMILY_RANGE_MULTIPLIER: float = 1.30       # Range req multiplier for family_size > 3
+CHARGING_TIME_COST_PER_YEAR: float = 600.0  # Implicit time cost for public-only charging
+
+# ── IRA §45X Manufacturing Credit ──
+# Source: IRA §45X — production-side battery manufacturing tax credit
+# for US-made battery cells. Directly reduces EV BOM.
+_BASELINE_MANUFACTURER_CREDIT: dict[tuple[int, int], float] = {
+    (2024, 2029): 35.0,    # $35/kWh for US-made cells
+    (2030, 2032): 25.0,    # Phase-down
+    (2033, 2035): 10.0,    # Further phase-down
+}
+_TRUMP_MANUFACTURER_CREDIT: dict[tuple[int, int], float] = {
+    (2024, 2024): 35.0,    # Honored for 2024
+    (2025, 2035): 0.0,     # Repealed
+}
+MANUFACTURER_CREDIT_SCHEDULE: dict[tuple[int, int], float] = _pick(
+    _BASELINE_MANUFACTURER_CREDIT, _TRUMP_MANUFACTURER_CREDIT
+)
+
+
 # ── Randomness ──
 SEED: int = 42

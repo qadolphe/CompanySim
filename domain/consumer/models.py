@@ -25,6 +25,12 @@ class ConsumerProfile:
     current_vehicle: str | None   # "ICE", "HYBRID", "EV", or None (no car)
     years_owned: int              # Ticks since last purchase (0 = just bought)
 
+    # ── New demographic & charging fields ──
+    family_size: int = 2                    # 1–5, correlated with income
+    can_charge_at_home: bool = True         # True if home charger access (garage, driveway, etc.)
+    fast_chargers_nearby: float = 0.5       # 0.0–1.0, localized charging access
+    maintenance_cost_sensitivity: float = 0.5  # 0.0–1.0, inversely correlated with income
+
     @property
     def daily_commute_miles(self) -> float:
         """Approximate daily commute assuming 250 working days."""
@@ -37,4 +43,6 @@ class ConsumerProfile:
             "income": self.annual_income,
             "vehicle": self.current_vehicle,
             "just_bought": self.years_owned == 0 and self.current_vehicle is not None,
+            "family_size": self.family_size,
+            "can_charge": self.can_charge_at_home,
         }

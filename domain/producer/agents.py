@@ -3,14 +3,22 @@ Producer agents — corporate entities that produce goods and adjust strategy.
 
 Contains the abstract ProducerAgent contract and the auto-industry
 LegacyAutomaker and PureEVStartup implementations.
+
+COGS Model (v2): Absolute unit-cost based.
+  unit_cost = BOM + structural_costs (union/dealer or DTC) + tooling - R&D savings
+  cogs = unit_cost × units_sold
+This decouples cost from price, enabling loss-leader and premium pricing scenarios.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from copy import deepcopy
-import math
 
+from domain.economics import (
+    get_legacy_unit_cost,
+    get_startup_unit_cost,
+)
 from domain.environment.models import PolicySnapshot
 from domain.market.models import ProductOffering, VehicleOffering, SalesRecord
 from domain.producer.models import AnnualFinancials, CapitalLedger, RAndDPipeline
@@ -19,15 +27,8 @@ from simulation.config import (
     INITIAL_CAPITAL,
     PRODUCTION_CAPACITY,
     CAPACITY_SHIFT_MAX_UNITS,
-    COGS_PCT_BY_DRIVETRAIN,
-    EV_COGS_MIN,
-    EV_COGS_MAX,
-    EV_COGS_LEARNING_RATE,
-    EV_COGS_REFERENCE_UNITS,
-    EV_BATTERY_DECLINE_TO_2030,
     GLOBAL_EV_MSRP_PASS_THROUGH,
     GLOBAL_EV_MSRP_MIN_FACTOR,
-    EV_RND_COGS_REDUCTION,
     DEFAULT_VEHICLE_CATALOG,
     DRIVETRAINS,
     EV_RND_MILESTONE_COST,
@@ -45,6 +46,8 @@ from simulation.config import (
     SGA_FIXED_LEGACY,
     SGA_FIXED_STARTUP,
     SGA_VARIABLE_PCT,
+    COMPANY_MAINTENANCE_COST_LEGACY,
+    COMPANY_MAINTENANCE_COST_STARTUP,
     DEPRECIATION_RATE,
     CORPORATE_TAX_RATE,
     STARTUP_FUNDING_ROUNDS,
@@ -55,39 +58,6 @@ from simulation.config import (
     START_YEAR,
 )
 from domain.environment.service import EnvironmentService
-
-
-def _compute_dynamic_ev_cogs_pct(
-    year: int,
-    cumulative_ev_units: int,
-    milestones: int,
-    charging_infra_index: float,
-) -> float:
-    """
-    Dynamic EV COGS ratio using:
-      1) Battery learning over time (to 2030)
-      2) Wright's Law volume effect from cumulative EV production
-      3) Existing R&D milestone improvements
-    """
-    base = COGS_PCT_BY_DRIVETRAIN["EV"]
-
-    # Time-based battery decline proxy toward 2030.
-    denom = max(1, 2030 - START_YEAR)
-    progress = max(0.0, min(1.0, (min(year, 2030) - START_YEAR) / denom))
-    battery_factor = 1.0 - EV_BATTERY_DECLINE_TO_2030 * progress
-
-    # Wright's Law: each cumulative doubling reduces cost by learning_rate.
-    reference = max(1, EV_COGS_REFERENCE_UNITS)
-    observed_units = max(cumulative_ev_units, reference)
-    learning_exp = math.log2(max(1e-6, 1.0 - EV_COGS_LEARNING_RATE))
-    volume_factor = (observed_units / reference) ** learning_exp
-
-    # Better charging ecosystem modestly improves effective EV production economics.
-    infra_factor = 1.0 - 0.08 * max(0.0, min(charging_infra_index, 1.0))
-
-    cogs_pct = base * battery_factor * volume_factor * infra_factor
-    cogs_pct -= milestones * EV_RND_COGS_REDUCTION
-    return max(EV_COGS_MIN, min(EV_COGS_MAX, cogs_pct))
 
 
 def _global_ev_msrp_factor(env: PolicySnapshot) -> float:
@@ -196,27 +166,35 @@ class LegacyAutomaker(ProducerAgent):
     ) -> None:
         self._last_sales = sales
 
-        # ── 1. Per-drivetrain Revenue & COGS ──
+        # ── 1. Per-drivetrain Revenue & COGS (absolute unit-cost model) ──
         ev_milestones = self.pipeline.get_milestones("EV")
-        ev_cogs_pct = _compute_dynamic_ev_cogs_pct(
-            year=env.year,
-            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
-            milestones=ev_milestones,
-            charging_infra_index=env.charging_infrastructure_index,
-        )
+        cum_ev = self.ledger.cumulative_units_by_dt.get("EV", 0)
+        mfr_credit = env.ira_manufacturer_credit_per_kwh
+
+        self._last_unit_costs = {}
         total_revenue = 0.0
         for dt, record in sales.items():
             rev = record.revenue
             total_revenue += rev
-            cogs_pct = COGS_PCT_BY_DRIVETRAIN.get(dt, 0.83)
-            if dt == "EV":
-                cogs_pct = ev_cogs_pct
-            cogs = rev * cogs_pct
+
+            # Compute absolute per-unit cost via economics module
+            unit_cost = get_legacy_unit_cost(
+                drivetrain=dt,
+                year=env.year,
+                cumulative_ev_units=cum_ev,
+                rd_milestones=ev_milestones if dt == "EV" else 0,
+                manufacturer_credit_per_kwh=mfr_credit if dt == "EV" else 0.0,
+            )
+            self._last_unit_costs[dt] = unit_cost
+            cogs = unit_cost * record.units_sold
             self.ledger.record_sale(dt, rev, cogs, units_sold=record.units_sold)
 
         # ── 2. SG&A ──
         sga = SGA_FIXED_LEGACY + total_revenue * SGA_VARIABLE_PCT
         self.ledger.record_opex(sga, "sga")
+
+        # ── 2b. Company-level maintenance overhead (dealer service network) ──
+        self.ledger.record_opex(COMPANY_MAINTENANCE_COST_LEGACY, "sga")
 
         # ── 3. Emissions Penalties ──
         ice_sales = sales.get("ICE")
@@ -272,19 +250,18 @@ class LegacyAutomaker(ProducerAgent):
             )
 
     @property
-    def ev_cogs_pct(self) -> float:
+    def ev_unit_cost(self) -> float:
+        """Current EV unit cost estimate for diagnostics."""
         milestones = self.pipeline.get_milestones("EV")
-        return _compute_dynamic_ev_cogs_pct(
-            year=START_YEAR + len(self.ledger.history),
-            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
-            milestones=milestones,
-            charging_infra_index=0.5,
-        )
+        year = START_YEAR + len(self.ledger.history)
+        cum_ev = self.ledger.cumulative_units_by_dt.get("EV", 0)
+        return get_legacy_unit_cost("EV", year, cum_ev, milestones)
 
     def get_state(self) -> dict:
         stmt = self._last_stmt
         stmt_dict = stmt.to_dict() if stmt else {}
         rev = stmt.revenue if stmt else 0.0
+        unit_costs = getattr(self, "_last_unit_costs", {})
         return {
             "firm": "LegacyAutomaker",
             "capital": self.ledger.capital,
@@ -311,11 +288,13 @@ class LegacyAutomaker(ProducerAgent):
             "fcf": stmt_dict.get("fcf", 0),
             # ── Ratios ──
             "gross_margin_pct": (stmt.gross_profit / rev) if stmt and rev else 0,
-            "ev_cogs_pct": self.ev_cogs_pct,
+            "ev_unit_cost": unit_costs.get("EV", self.ev_unit_cost),
             "ev_gross_margin_pct": (
                 (stmt.gross_profit_by_dt.get("EV", 0) / stmt.revenue_by_dt.get("EV", 1))
                 if stmt and stmt.revenue_by_dt.get("EV") else 0
             ),
+            # ── Unit Cost Breakdown ──
+            "unit_costs": dict(unit_costs),
             # ── R&D Pipeline ──
             "r_and_d_investments": dict(self.pipeline.investments),
             "milestones_achieved": dict(self.pipeline.milestones_achieved),
@@ -394,17 +373,22 @@ class PureEVStartup(ProducerAgent):
 
         ev_sales = sales.get("EV")
 
-        # ── 1. Revenue & COGS ──
+        # ── 1. Revenue & COGS (absolute unit-cost model) ──
         ev_milestones = self.pipeline.get_milestones("EV")
-        ev_cogs_pct = _compute_dynamic_ev_cogs_pct(
+        cum_ev = self.ledger.cumulative_units_by_dt.get("EV", 0)
+        mfr_credit = env.ira_manufacturer_credit_per_kwh
+
+        unit_cost = get_startup_unit_cost(
             year=env.year,
-            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
-            milestones=ev_milestones,
-            charging_infra_index=env.charging_infrastructure_index,
+            cumulative_ev_units=cum_ev,
+            rd_milestones=ev_milestones,
+            manufacturer_credit_per_kwh=mfr_credit,
         )
+        self._last_ev_unit_cost = unit_cost
+
         if ev_sales and ev_sales.revenue > 0:
             rev = ev_sales.revenue
-            cogs = rev * ev_cogs_pct
+            cogs = unit_cost * ev_sales.units_sold
             self.ledger.record_sale("EV", rev, cogs, units_sold=ev_sales.units_sold)
         else:
             rev = 0.0
@@ -412,6 +396,9 @@ class PureEVStartup(ProducerAgent):
         # ── 2. SG&A ──
         sga = SGA_FIXED_STARTUP + rev * SGA_VARIABLE_PCT
         self.ledger.record_opex(sga, "sga")
+
+        # ── 2b. Company-level service center overhead ──
+        self.ledger.record_opex(COMPANY_MAINTENANCE_COST_STARTUP, "sga")
 
         # ── 3. R&D ──
         revenue_anchor = _prior_year_revenue(self.ledger, rev)
@@ -467,19 +454,18 @@ class PureEVStartup(ProducerAgent):
         return EnvironmentService._lookup_schedule(STARTUP_FUNDING_ROUNDS, year)
 
     @property
-    def ev_cogs_pct(self) -> float:
+    def ev_unit_cost(self) -> float:
+        """Current EV unit cost estimate for diagnostics."""
         milestones = self.pipeline.get_milestones("EV")
-        return _compute_dynamic_ev_cogs_pct(
-            year=START_YEAR + len(self.ledger.history),
-            cumulative_ev_units=self.ledger.cumulative_units_by_dt.get("EV", 0),
-            milestones=milestones,
-            charging_infra_index=0.5,
-        )
+        year = START_YEAR + len(self.ledger.history)
+        cum_ev = self.ledger.cumulative_units_by_dt.get("EV", 0)
+        return get_startup_unit_cost(year, cum_ev, milestones)
 
     def get_state(self) -> dict:
         stmt = self._last_stmt
         stmt_dict = stmt.to_dict() if stmt else {}
         rev = stmt.revenue if stmt else 0.0
+        ev_uc = getattr(self, "_last_ev_unit_cost", self.ev_unit_cost)
         return {
             "firm": "PureEVStartup",
             "capital": self.ledger.capital,
@@ -503,11 +489,13 @@ class PureEVStartup(ProducerAgent):
             "external_funding": stmt_dict.get("external_funding", 0),
             "fcf": stmt_dict.get("fcf", 0),
             "gross_margin_pct": (stmt.gross_profit / rev) if stmt and rev else 0,
-            "ev_cogs_pct": self.ev_cogs_pct,
+            "ev_unit_cost": ev_uc,
             "ev_gross_margin_pct": (
                 (stmt.gross_profit_by_dt.get("EV", 0) / stmt.revenue_by_dt.get("EV", 1))
                 if stmt and stmt.revenue_by_dt.get("EV") else 0
             ),
+            # ── Unit Cost Breakdown ──
+            "unit_costs": {"EV": ev_uc},
             "r_and_d_investments": dict(self.pipeline.investments),
             "milestones_achieved": dict(self.pipeline.milestones_achieved),
             "msrp_reductions": {"EV": self._msrp_reduction},

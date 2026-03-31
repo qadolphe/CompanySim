@@ -23,6 +23,8 @@ from simulation.config import (
     HOMEOWNER_INCOME_THRESHOLD,
     HOMEOWNER_PROB_BASE,
     HOMEOWNER_PROB_MAX,
+    HOMEOWNER_CAN_CHARGE_PROB,
+    RENTER_CAN_CHARGE_PROB,
 )
 
 
@@ -31,11 +33,15 @@ class PopulationFactory:
     Generates a population of AutoConsumer agents with realistic
     demographic distributions.
 
-    Income: truncated normal (μ=65K, σ=25K, min=25K)
+    Income: truncated normal (μ=75K, σ=30K, min=28K)
     Commute: truncated normal (μ=30mi, σ=15mi, min=5mi)
     Green preference: uniform [0, 1]
     Price sensitivity: uniform [0, 1]
     Homeownership: income-correlated probability (30% @ min → 85% @ high)
+    Family size: income-correlated truncated Poisson (1–5)
+    Can charge at home: homeowner 90% True, renter 15% True
+    Fast chargers nearby: infra_index × (0.5 + 0.5 × random) geographic noise
+    Maintenance sensitivity: inversely correlated with income
     Current vehicle: random assignment (weighted toward ICE)
     Years owned: uniform [0, ownership_cycle]
     """
@@ -93,6 +99,46 @@ class PopulationFactory:
         )
         is_homeowner_flags = rng.random(size=n) < homeowner_probs
 
+        # ── Family size (income-correlated truncated Poisson, 1–5) ──
+        # Higher income → slightly larger family (μ scales 1.5–3.0)
+        family_lambda = 1.5 + 1.5 * income_ratio  # λ ∈ [1.5, 3.0]
+        family_sizes = np.clip(
+            rng.poisson(lam=family_lambda) + 1,  # +1 so minimum is 1
+            1,
+            5,
+        ).astype(int)
+
+        # ── Can charge at home (homeowners ~90%, renters ~15%) ──
+        can_charge_probs = np.where(
+            is_homeowner_flags,
+            HOMEOWNER_CAN_CHARGE_PROB,
+            RENTER_CAN_CHARGE_PROB,
+        )
+        can_charge_flags = rng.random(size=n) < can_charge_probs
+
+        # ── Fast chargers nearby (geographic noise around infra baseline) ──
+        # At sim start, infra_index ~0.12; per-consumer noise creates variance
+        infra_baseline = 0.12  # Will be updated each tick via env snapshot
+        fast_charger_scores = np.clip(
+            infra_baseline * (0.5 + 0.5 * rng.random(size=n))
+            + 0.3 * rng.random(size=n),  # Some areas have private chargers
+            0.0,
+            1.0,
+        )
+
+        # ── Maintenance cost sensitivity (inversely correlated with income) ──
+        # Low income → high sensitivity; high income → low sensitivity
+        income_pctl = np.clip(
+            (incomes - INCOME_MIN) / (INCOME_MEAN * 2.0 - INCOME_MIN),
+            0.0,
+            1.0,
+        )
+        maintenance_sensitivities = np.clip(
+            1.0 - income_pctl + rng.normal(0.0, 0.1, size=n),
+            0.0,
+            1.0,
+        )
+
         # ── Build agents ──
         for i in range(n):
             profile = ConsumerProfile(
@@ -104,6 +150,10 @@ class PopulationFactory:
                 is_homeowner=bool(is_homeowner_flags[i]),
                 current_vehicle=str(starting_vehicles[i]),
                 years_owned=int(starting_years[i]),
+                family_size=int(family_sizes[i]),
+                can_charge_at_home=bool(can_charge_flags[i]),
+                fast_chargers_nearby=float(fast_charger_scores[i]),
+                maintenance_cost_sensitivity=float(maintenance_sensitivities[i]),
             )
             consumers.append(AutoConsumer(profile))
 

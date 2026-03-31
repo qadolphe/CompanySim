@@ -3,6 +3,12 @@ Utility calculator — the economic decision engine for consumer agents.
 
 Contains the abstract UtilityCalculator contract and the auto-industry
 VehicleUtilityCalculator implementation.
+
+V2: 5-Year TCO model with:
+  - Financed MSRP, fuel, maintenance, insurance, resale value
+  - Behavioral multipliers: charging access penalty, inertia discount,
+    family size factor, maintenance sensitivity
+  - Demographic depth: can_charge_at_home, fast_chargers_nearby, family_size
 """
 
 from __future__ import annotations
@@ -11,9 +17,14 @@ from abc import ABC, abstractmethod
 import math
 
 from domain.consumer.models import ConsumerProfile
+from domain.economics import (
+    get_annual_fuel_cost,
+    get_annual_insurance,
+    get_annual_maintenance,
+    get_vehicle_depreciation_residual,
+)
 from domain.environment.models import PolicySnapshot
 from simulation.config import (
-    VEHICLE_OWNERSHIP_YEARS,
     UTILITY_ALPHA_BASE,
     UTILITY_ALPHA_SENSITIVITY,
     UTILITY_BETA_MAX,
@@ -24,6 +35,7 @@ from simulation.config import (
     INCOME_MEAN,
     INCOME_STD,
     START_YEAR,
+    TCO_HORIZON_YEARS,
     UTILITY_INFRA_CONVEXITY,
     UTILITY_INFRA_CRITICAL_THRESHOLD,
     UTILITY_INFRA_CRITICAL_MULTIPLIER,
@@ -36,6 +48,11 @@ from simulation.config import (
     UTILITY_SAME_DRIVETRAIN_BONUS,
     UTILITY_RENTER_PUBLIC_CHARGING_BASE,
     UTILITY_RENTER_PUBLIC_CHARGING_INCOME_RELIEF,
+    INERTIA_DISCOUNT_PCT,
+    CHARGING_INCONVENIENCE_COST,
+    FAST_CHARGER_RELIEF_THRESHOLD,
+    FAMILY_RANGE_MULTIPLIER,
+    CHARGING_TIME_COST_PER_YEAR,
 )
 
 
@@ -76,16 +93,14 @@ class UtilityCalculator(ABC):
 
 class VehicleUtilityCalculator(UtilityCalculator):
     """
-    Vehicle-specific utility function.
+    Vehicle-specific utility function using 5-Year TCO.
 
-    utility = -α · TCO_normalized + β · green_bonus - γ · range_anxiety - δ · ownership_hassle
+    utility = -α · TCO_normalized + β · green_bonus + tech_inertia
+              - γ · range_anxiety - δ · ownership_hassle - switching_penalty
 
-    Where:
-      TCO = (MSRP - tax_credit) + fuel_cost + maintenance + financing
-      α = 1.0 + (price_sensitivity × 2.0)       # 1.0 – 3.0
-      β = green_preference × 0.3                 # 0.0 – 0.3
-      γ = penalty if EV range < threshold × daily commute
-      δ = EV ownership friction (charging access, time cost)
+    Where TCO is a 5-year total cost of ownership:
+      TCO = financed_MSRP + 5yr_fuel + 5yr_maintenance + 5yr_insurance
+            - resale_value + charging_penalty + time_cost
     """
 
     def compute(
@@ -94,8 +109,12 @@ class VehicleUtilityCalculator(UtilityCalculator):
         offering: dict,
         env: PolicySnapshot,
     ) -> float:
-        # ── TCO Calculation ──
+        # ── 5-Year TCO Calculation ──
         tco = self._compute_tco(profile, offering, env)
+
+        # ── Inertia discount (same drivetrain familiarity) ──
+        if profile.current_vehicle == offering["product_type"]:
+            tco *= (1.0 - INERTIA_DISCOUNT_PCT)
 
         # Normalize TCO by income (makes price sensitivity relative)
         tco_normalized = tco / max(profile.annual_income, 1.0)
@@ -173,55 +192,70 @@ class VehicleUtilityCalculator(UtilityCalculator):
         env: PolicySnapshot,
     ) -> float:
         """
-        Total Cost of Ownership over the holding period.
+        5-Year Total Cost of Ownership.
 
-        TCO = purchase_cost + fuel_cost + maintenance + financing
+        TCO = financed_purchase + fuel_5yr + maintenance_5yr + insurance_5yr
+              - resale_value + charging_access_penalty + time_cost_penalty
         """
-        years = VEHICLE_OWNERSHIP_YEARS
+        years = TCO_HORIZON_YEARS
+        dt = offering["product_type"]
+        msrp = offering["msrp"]
 
-        # Purchase cost (minus tax credit for EVs)
-        purchase_cost = offering["msrp"]
-        if offering["product_type"] == "EV":
+        # ── Purchase cost (minus tax credit for EVs) ──
+        purchase_cost = msrp
+        if dt == "EV":
             purchase_cost -= env.ev_tax_credit
 
-        # Annual fuel cost
-        annual_fuel = self._annual_fuel_cost(profile, offering, env)
+        # ── Financing (simplified half-interest over loan term) ──
+        financed_purchase = purchase_cost * (1.0 + env.interest_rate * years * 0.5)
 
-        # Maintenance
-        annual_maintenance = offering["annual_maintenance"]
+        # ── 5-Year Fuel Cost (year-aware via economics module) ──
+        annual_fuel = get_annual_fuel_cost(
+            drivetrain=dt,
+            year=env.year,
+            annual_miles=profile.annual_commute_miles,
+            mpg=offering.get("mpg"),
+            kwh_per_mile=offering.get("kwh_per_mile"),
+            can_charge_at_home=profile.can_charge_at_home,
+        )
+        fuel_5yr = annual_fuel * years
 
-        # Financing (simplified linear approximation)
-        financing = offering["msrp"] * env.interest_rate * years * 0.5
+        # ── 5-Year Maintenance (escalating with vehicle age) ──
+        base_maintenance = offering["annual_maintenance"]
+        # Weight by maintenance sensitivity (budget-conscious families care more)
+        sensitivity_weight = 1.0 + 0.3 * profile.maintenance_cost_sensitivity
+        maintenance_5yr = sum(
+            get_annual_maintenance(dt, base_maintenance, vehicle_age=y)
+            for y in range(years)
+        ) * sensitivity_weight
 
-        return purchase_cost + (annual_fuel * years) + (
-            annual_maintenance * years
-        ) + financing
+        # ── 5-Year Insurance ──
+        insurance_5yr = get_annual_insurance(dt) * years
 
-    @staticmethod
-    def _annual_fuel_cost(
-        profile: ConsumerProfile,
-        offering: dict,
-        env: PolicySnapshot,
-    ) -> float:
-        """Compute annual fuel/energy cost based on drivetrain type."""
-        miles = profile.annual_commute_miles
+        # ── Resale Value (depreciation at end of holding period) ──
+        residual_fraction = get_vehicle_depreciation_residual(dt, vehicle_age=years)
+        resale_value = msrp * residual_fraction
 
-        if offering["product_type"] == "EV":
-            # EV: cost = miles × kWh/mile × $/kWh
-            kwh_per_mile = offering.get("kwh_per_mile") or 0.30
-            effective_kwh_price = env.electricity_price_per_kwh
-            if not profile.is_homeowner:
-                income_factor = min(
-                    profile.annual_income / HOMEOWNER_INCOME_THRESHOLD,
-                    1.0,
-                )
-                public_charging_premium = 1.55 - 0.25 * income_factor
-                effective_kwh_price *= max(1.0, public_charging_premium)
-            return miles * kwh_per_mile * effective_kwh_price
-        else:
-            # ICE / Hybrid: cost = (miles / MPG) × $/gallon
-            mpg = offering.get("mpg") or 30.0
-            return (miles / mpg) * env.gas_price_per_gallon
+        # ── Charging Access Penalty (EVs only) ──
+        charging_penalty = 0.0
+        if dt == "EV" and not profile.can_charge_at_home:
+            # Relief scales with local fast-charger availability
+            charger_relief = max(0.0, min(1.0,
+                (profile.fast_chargers_nearby - FAST_CHARGER_RELIEF_THRESHOLD)
+                / (1.0 - FAST_CHARGER_RELIEF_THRESHOLD)
+            )) if profile.fast_chargers_nearby > FAST_CHARGER_RELIEF_THRESHOLD else 0.0
+            charging_penalty = CHARGING_INCONVENIENCE_COST * (1.0 - 0.7 * charger_relief)
+            # Add implicit time cost of public charging
+            charging_penalty += CHARGING_TIME_COST_PER_YEAR * years
+
+        return (
+            financed_purchase
+            + fuel_5yr
+            + maintenance_5yr
+            + insurance_5yr
+            - resale_value
+            + charging_penalty
+        )
 
     @staticmethod
     def _compute_range_anxiety(
@@ -231,14 +265,17 @@ class VehicleUtilityCalculator(UtilityCalculator):
     ) -> float:
         """
         Range anxiety penalty for EVs.
-        Penalty = max(0, 1 - range / (daily_commute × threshold)) × γ_max
-
-        No penalty if range exceeds threshold × daily commute.
+        Penalty scales with shortfall below required range.
+        Family size > 3 increases range requirement (road trips).
         """
         range_mi = offering.get("range_mi", 0.0)
         daily_commute = profile.daily_commute_miles
         infra_shortfall = max(0.0, 1.0 - env.charging_infrastructure_index)
         required_range = daily_commute * UTILITY_RANGE_ANXIETY_THRESHOLD * (1.0 + 1.8 * infra_shortfall)
+
+        # Family size factor: larger families need more range for road trips
+        if profile.family_size > 3:
+            required_range *= FAMILY_RANGE_MULTIPLIER
 
         if required_range <= 0:
             return 0.0
@@ -255,6 +292,9 @@ class VehicleUtilityCalculator(UtilityCalculator):
 
         income_z = (profile.annual_income - INCOME_MEAN) / max(1.0, INCOME_STD)
         homeowner_boost = 1.2 if profile.is_homeowner else -0.3
+        # can_charge_at_home provides additional relief beyond homeownership
+        if profile.can_charge_at_home:
+            homeowner_boost += 0.3
         shield_raw = 1.0 / (1.0 + math.exp(-(1.1 * income_z + homeowner_boost)))
         shield = min(UTILITY_DEMOGRAPHIC_SHIELD_MAX, shield_raw)
 
@@ -267,19 +307,12 @@ class VehicleUtilityCalculator(UtilityCalculator):
         env: PolicySnapshot,
     ) -> float:
         """
-        Ownership hassle penalty for EVs based on housing and income.
+        Ownership hassle penalty for EVs based on charging access and demographics.
 
-        Models the real-world difficulty of EV ownership:
-          - Homeowners: can install L2 charger → minimal hassle
-          - Non-homeowners: must rely on public charging → high hassle
-          - Higher income reduces hassle (access to paid charging services,
-            premium apartments with chargers, workplace charging)
-          - Longer commutes amplify the hassle (more charging sessions/week)
-
-        Returns a float penalty in [0, DELTA_MAX].
+        Now uses can_charge_at_home directly instead of is_homeowner proxy.
         """
         # Base hassle score before infrastructure scaling.
-        if profile.is_homeowner:
+        if profile.can_charge_at_home:
             income_factor = min(
                 profile.annual_income / HOMEOWNER_INCOME_THRESHOLD, 1.0
             )
@@ -303,9 +336,9 @@ class VehicleUtilityCalculator(UtilityCalculator):
             cliff = 1.0 + UTILITY_INFRA_CRITICAL_MULTIPLIER * (gap ** 2)
             infrastructure_multiplier *= cliff
 
-        # Renters retain persistent public-charging inconvenience even when
-        # infrastructure is widespread, while still benefiting from infra growth.
-        if not profile.is_homeowner:
+        # Consumers without home charging retain persistent public-charging
+        # inconvenience even when infrastructure is widespread.
+        if not profile.can_charge_at_home:
             renter_income_factor = min(
                 profile.annual_income / HOMEOWNER_INCOME_THRESHOLD,
                 1.0,
@@ -318,6 +351,9 @@ class VehicleUtilityCalculator(UtilityCalculator):
                 0.0,
                 min(0.85, persistent_public_inconvenience),
             )
+            # Fast chargers nearby provide partial relief
+            charger_relief = profile.fast_chargers_nearby * 0.3
+            persistent_public_inconvenience *= (1.0 - charger_relief)
             infrastructure_multiplier = (
                 persistent_public_inconvenience
                 + (1.0 - persistent_public_inconvenience) * infrastructure_multiplier
@@ -329,7 +365,7 @@ class VehicleUtilityCalculator(UtilityCalculator):
         )
 
         income_z = (profile.annual_income - INCOME_MEAN) / max(1.0, INCOME_STD)
-        homeowner_boost = 1.3 if profile.is_homeowner else -0.4
+        homeowner_boost = 1.3 if profile.can_charge_at_home else -0.4
         relief_raw = 1.0 / (1.0 + math.exp(-(1.1 * income_z + homeowner_boost)))
         relief = min(UTILITY_DEMOGRAPHIC_SHIELD_MAX, relief_raw)
 

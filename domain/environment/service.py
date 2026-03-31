@@ -8,6 +8,7 @@ This is a read-only timeline: nothing in the simulation mutates it.
 from __future__ import annotations
 
 from domain.environment.models import PolicySnapshot
+from domain.economics import get_fuel_cost, get_interest_rate
 import simulation.config as cfg
 
 
@@ -74,6 +75,7 @@ class EnvironmentService:
             cafe_ev_mandate_pct=self._cafe_ev_mandate(),
             charging_infrastructure_index=self._charging_infrastructure_index(),
             battery_cost_index=self._battery_cost_index(),
+            ira_manufacturer_credit_per_kwh=self._manufacturer_credit(),
         )
 
     # ── Private: Schedule Lookups ──
@@ -104,7 +106,7 @@ class EnvironmentService:
         return self._lookup_schedule(cfg.CAFE_EV_MANDATE_SCHEDULE, self._current_year)
 
     def _interest_rate(self) -> float:
-        return self._lookup_schedule(cfg.INTEREST_RATE_SCHEDULE, self._current_year)
+        return get_interest_rate(self._current_year)
 
     def _charging_infrastructure_index(self) -> float:
         return self._lookup_schedule(cfg.CHARGING_INFRASTRUCTURE_SCHEDULE, self._current_year)
@@ -112,16 +114,16 @@ class EnvironmentService:
     # ── Private: Compounding Economic Variables ──
 
     def _gas_price(self) -> float:
-        """Gas price compounds annually from a base value."""
-        years_elapsed = self._current_year - self._start_year
-        return cfg.GAS_PRICE_BASE * ((1.0 + cfg.GAS_PRICE_ANNUAL_GROWTH) ** years_elapsed)
+        """Gas price via economics module."""
+        return get_fuel_cost("gasoline", self._current_year)
 
     def _electricity_price(self) -> float:
-        """Electricity price compounds annually from a base value."""
-        years_elapsed = self._current_year - self._start_year
-        return cfg.ELECTRICITY_PRICE_BASE * (
-            (1.0 + cfg.ELECTRICITY_PRICE_ANNUAL_GROWTH) ** years_elapsed
-        )
+        """Electricity price via economics module."""
+        return get_fuel_cost("electricity", self._current_year)
+
+    def _manufacturer_credit(self) -> float:
+        """IRA §45X battery manufacturing credit per kWh."""
+        return self._lookup_schedule(cfg.MANUFACTURER_CREDIT_SCHEDULE, self._current_year)
 
     def _battery_cost_index(self) -> float:
         """Global battery cost curve proxy (exogenous learning over time)."""
