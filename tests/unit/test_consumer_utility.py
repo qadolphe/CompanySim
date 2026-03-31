@@ -12,6 +12,7 @@ import pytest
 
 from domain.consumer.models import ConsumerProfile
 from domain.consumer.utility import VehicleUtilityCalculator
+from domain.economics import get_annual_fuel_cost
 from domain.environment.models import PolicySnapshot
 
 
@@ -310,7 +311,9 @@ class TestTCO:
         tco_no = calc._compute_tco(profile, ev_offering, env_no_credit)
         tco_with = calc._compute_tco(profile, ev_offering, env_with_credit)
         assert tco_with < tco_no
-        assert tco_no - tco_with == pytest.approx(7500.0)
+        # Credit reduces financed purchase: delta = credit * (1 + r * years * 0.5)
+        expected_delta = 7500.0 * (1.0 + 0.07 * 5 * 0.5)
+        assert tco_no - tco_with == pytest.approx(expected_delta, rel=0.01)
 
     def test_ev_cheaper_fuel_than_ice(
         self,
@@ -318,16 +321,13 @@ class TestTCO:
         env_2024: PolicySnapshot,
     ) -> None:
         """Annual fuel cost for EV should be lower than ICE at current prices."""
-        profile = _make_profile(annual_commute_miles=12_000)
-        ice = {"offering_id": "LegacyAutomaker_ICE", "product_type": "ICE", "msrp": 32000, "mpg": 30,
-               "range_mi": 400, "annual_maintenance": 1200, "kwh_per_mile": None}
-        ev = {"offering_id": "LegacyAutomaker_EV", "product_type": "EV", "msrp": 42000, "mpg": None,
-              "range_mi": 300, "annual_maintenance": 600, "kwh_per_mile": 0.3}
-        fuel_ice = VehicleUtilityCalculator._annual_fuel_cost(
-            profile, ice, env_2024
+        fuel_ice = get_annual_fuel_cost(
+            drivetrain="ICE", year=2024, annual_miles=12_000,
+            mpg=30, kwh_per_mile=None, can_charge_at_home=True,
         )
-        fuel_ev = VehicleUtilityCalculator._annual_fuel_cost(
-            profile, ev, env_2024
+        fuel_ev = get_annual_fuel_cost(
+            drivetrain="EV", year=2024, annual_miles=12_000,
+            mpg=None, kwh_per_mile=0.3, can_charge_at_home=True,
         )
         assert fuel_ev < fuel_ice
 
@@ -340,10 +340,10 @@ class TestOwnershipHassle:
     """Tests for the EV ownership hassle penalty."""
 
     def test_homeowner_has_lower_hassle_than_renter(self, env_2024: PolicySnapshot) -> None:
-        """A homeowner should have significantly lower hassle than a renter with identical stats."""
+        """A home-charger owner should have significantly lower hassle than someone without."""
         from domain.consumer.utility import VehicleUtilityCalculator
-        homeowner = _make_profile(is_homeowner=True, annual_income=60_000)
-        renter = _make_profile(is_homeowner=False, annual_income=60_000)
+        homeowner = _make_profile(is_homeowner=True, can_charge_at_home=True, annual_income=60_000)
+        renter = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_income=60_000)
         
         h_home = VehicleUtilityCalculator._compute_ownership_hassle(homeowner, env_2024)
         h_rent = VehicleUtilityCalculator._compute_ownership_hassle(renter, env_2024)
@@ -353,8 +353,8 @@ class TestOwnershipHassle:
     def test_high_income_renter_has_lower_hassle_than_low_income_renter(self, env_2024: PolicySnapshot) -> None:
         """Higher income for renters mitigates some friction (can afford paid charging)."""
         from domain.consumer.utility import VehicleUtilityCalculator
-        rich_renter = _make_profile(is_homeowner=False, annual_income=100_000)
-        poor_renter = _make_profile(is_homeowner=False, annual_income=30_000)
+        rich_renter = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_income=100_000)
+        poor_renter = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_income=30_000)
         
         h_rich = VehicleUtilityCalculator._compute_ownership_hassle(rich_renter, env_2024)
         h_poor = VehicleUtilityCalculator._compute_ownership_hassle(poor_renter, env_2024)
@@ -364,8 +364,8 @@ class TestOwnershipHassle:
     def test_long_commute_increases_hassle(self, env_2024: PolicySnapshot) -> None:
         """Longer commutes mean more frequent charging, increasing the hassle penalty."""
         from domain.consumer.utility import VehicleUtilityCalculator
-        short_commute = _make_profile(is_homeowner=False, annual_commute_miles=5_000)
-        long_commute = _make_profile(is_homeowner=False, annual_commute_miles=20_000)
+        short_commute = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_commute_miles=5_000)
+        long_commute = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_commute_miles=20_000)
         
         h_short = VehicleUtilityCalculator._compute_ownership_hassle(short_commute, env_2024)
         h_long = VehicleUtilityCalculator._compute_ownership_hassle(long_commute, env_2024)
@@ -375,7 +375,7 @@ class TestOwnershipHassle:
     def test_renter_keeps_persistent_hassle_at_high_infrastructure(self) -> None:
         from domain.consumer.utility import VehicleUtilityCalculator
 
-        renter = _make_profile(is_homeowner=False, annual_income=70_000)
+        renter = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_income=70_000)
         high_infra_env = PolicySnapshot(
             year=2035,
             ev_tax_credit=0,
@@ -393,7 +393,7 @@ class TestOwnershipHassle:
         """Infrastructure below the critical threshold should steepen EV ownership hassle."""
         from domain.consumer.utility import VehicleUtilityCalculator
 
-        profile = _make_profile(is_homeowner=False, annual_income=55_000)
+        profile = _make_profile(is_homeowner=False, can_charge_at_home=False, annual_income=55_000)
         env_low = PolicySnapshot(
             year=2024, ev_tax_credit=7500, gas_price_per_gallon=3.5,
             electricity_price_per_kwh=0.14, interest_rate=0.07,

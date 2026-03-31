@@ -97,8 +97,8 @@ class TestEvaluateAndChoose:
     def test_returns_none_when_nothing_affordable(
         self, env: PolicySnapshot, catalog: list[dict]
     ) -> None:
-        """A very low income consumer can't afford anything (max = $16K)."""
-        agent = _make_agent(annual_income=20_000)  # max affordable = $16K
+        """A very low income consumer can't afford anything (DTI: max ~$12K)."""
+        agent = _make_agent(annual_income=20_000)  # max affordable = 20K/12*0.12*60 ≈ $12K
         choice = agent.evaluate_and_choose(catalog, env)
         assert choice is None
 

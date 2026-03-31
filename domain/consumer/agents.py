@@ -26,6 +26,8 @@ from simulation.config import (
     SHOPPING_LOGIT_INCOME_WEIGHT,
     SHOPPING_LOGIT_OWNERSHIP_WEIGHT,
     SHOPPING_NOISE_SIGMA,
+    AFFORDABILITY_MAX_DTI,
+    LOAN_TERM_MONTHS,
 )
 
 
@@ -87,10 +89,6 @@ class AutoConsumer(ConsumerAgent):
       2. If yes, compute utility for each available vehicle.
       3. Purchase the highest-utility option (if affordable).
     """
-
-    # Maximum portion of annual income willing to spend on a vehicle
-    # (realistic for financed purchases spread over 5-7 years)
-    AFFORDABILITY_THRESHOLD: float = 0.80
 
     def __init__(
         self,
@@ -172,8 +170,8 @@ class AutoConsumer(ConsumerAgent):
     def _is_affordable(self, offering: dict) -> bool:
         """
         Can this consumer afford this vehicle?
-        MSRP must be <= AFFORDABILITY_THRESHOLD × annual income.
+        Monthly payment must be <= AFFORDABILITY_MAX_DTI × monthly income.
         """
-        return offering["msrp"] <= (
-            self._profile.annual_income * self.AFFORDABILITY_THRESHOLD
-        )
+        monthly_payment = offering["msrp"] / LOAN_TERM_MONTHS
+        monthly_income = self._profile.annual_income / 12.0
+        return monthly_payment <= (monthly_income * AFFORDABILITY_MAX_DTI)

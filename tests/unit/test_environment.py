@@ -229,6 +229,7 @@ class TestPolicySnapshot:
             "cafe_ev_mandate_pct",
             "charging_infrastructure_index",
             "battery_cost_index",
+            "ira_manufacturer_credit_per_kwh",
         }
         actual_fields = set(env_snapshot_2024.to_dict().keys())
         assert actual_fields == required_fields
