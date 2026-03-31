@@ -8,12 +8,16 @@ export interface MacroState {
   emissions_penalty_per_unit: number;
   cafe_ev_mandate_pct: number;
   charging_infrastructure_index: number;
+  interest_rate?: number;
+  electricity_price_per_kwh?: number;
+  ira_manufacturer_credit_per_kwh?: number;
 
   legacy_capital: number;
   legacy_revenue: number;
   legacy_net_income: number;
   legacy_fcf: number;
-  legacy_ev_cogs_pct: number;
+  legacy_ev_cogs_pct?: number;
+  legacy_ev_unit_cost?: number;
   legacy_gross_margin_pct: number;
 
   startup_capital: number;
@@ -21,7 +25,8 @@ export interface MacroState {
   startup_net_income: number;
   startup_fcf: number;
   startup_is_bankrupt: boolean;
-  startup_ev_cogs_pct: number;
+  startup_ev_cogs_pct?: number;
+  startup_ev_unit_cost?: number;
   startup_gross_margin_pct: number;
 
   fleet_ice_pct: number;

@@ -64,7 +64,9 @@ export default function CompanyFinancials({
   const grossMargin = company === "legacy"
     ? macro.legacy_gross_margin_pct
     : macro.startup_gross_margin_pct;
+  const evUnitCost = getField(macro, company, "ev_unit_cost");
   const evCogs = getField(macro, company, "ev_cogs_pct");
+  const hasUnitCost = evUnitCost > 0;
 
   // Chart data
   const points: ChartPoint[] = chartData.map((t) => ({
@@ -100,8 +102,8 @@ export default function CompanyFinancials({
           <KPITile label="Gross Margin" value={`${(grossMargin * 100).toFixed(1)}%`} color="text-violet-600" />
         )}
         <KPITile
-          label="EV COGS Ratio"
-          value={`${evCogs.toFixed(2)}x`}
+          label={hasUnitCost ? "EV Unit Cost" : "EV COGS Ratio"}
+          value={hasUnitCost ? formatCurrency(evUnitCost) : `${evCogs.toFixed(2)}x`}
           color="text-amber-600"
           infoAction={
             onExplain
